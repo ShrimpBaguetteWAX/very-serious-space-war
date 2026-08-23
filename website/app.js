@@ -4337,7 +4337,7 @@ async function loadCrew() {
         crewHint.classList.remove('is-warn')
         crewHint.textContent = crew.length
             ? (boostTable.size
-                ? 'Pick a card to field. Best multiplier first.'
+                ? 'Pick a card. Any card.'
                 : 'Pick a card to field. No boosts are configured yet, so every card is 1×.')
             : 'No crew.worlds cards in this wallet. Fielding none costs you nothing.'
     }
