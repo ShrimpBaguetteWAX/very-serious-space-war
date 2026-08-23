@@ -3057,33 +3057,47 @@ function flashAt(i) {
 
 // ── The lobby's drift ─────────────────────────────────────────────────────
 //
-// The same shape the map draws when somebody takes ground: a front spreading
-// out from one cell, four-neighbour, each cell lighting as the front passes and
-// dimming behind it. Here it is nobody's territory and nothing is at stake - it
-// is the lobby wearing the game's own language while you wait for a sector.
+// It started as the map's own capture replay - a four-neighbour flood from one
+// cell - and that is exactly what it looked like: clean diamonds of big square
+// tiles, which reads as a mechanism rather than as weather.
 //
-// Kept cheap deliberately. It runs at 30fps rather than 60, only while the
-// lobby is the thing on screen and the tab is not in the background, and it
-// draws in five alpha buckets rather than per cell - a few hundred lit cells is
-// five state changes a frame, not a few hundred.
+// So the front still spreads a cell at a time, but it only takes a neighbour
+// SOME of the time. A flood that refuses about two neighbours in five grows
+// lobed and ragged and never the same shape twice, which is the difference
+// between something drawn and something happening. A cell is one square of the
+// lattice painted behind it, so a form is built out of the ground it sits on
+// rather than laid across it, and each cell dissolves on its own slightly
+// different clock, so a form comes apart unevenly instead of fading out at once.
+//
+// Kept deliberately cheap. 30fps rather than 60, only while the lobby is the
+// thing on screen and the tab is not in the background, and drawn in five alpha
+// buckets rather than per cell.
 
 const fxCanvas = $('lobbyFx')
 const fxCtx = fxCanvas.getContext('2d')
 
-const FX_CELL = 34            // the lattice pitch, matching the CSS
+const FX_CELL = 40            // the lattice pitch. The forms sit ON the ground,
+                              // squarely in its cells, rather than across it
 const FX_FRAME_MS = 33        // 30fps
-const FX_DECAY = 0.94         // per frame, so a trail lasts about a second
-const FX_STEP_MS = 52         // how long the front takes to cross one cell
+const FX_DECAY = 0.945        // the base rate; every cell varies around it
+const FX_DECAY_VARY = 0.045   // how far it varies, which is what raggeds the edges
+const FX_STEP_MS = 70         // how long the front takes to cross one cell
+const FX_SPREAD = 0.58        // chance the front takes any one neighbour
+const FX_BUDGET = 220         // cells one front may claim before it is spent
+const FX_MAX_STEPS = 30
 const FX_MIN = 0.03           // below this a cell is not worth a rectangle
 const FX_BUCKETS = 5
-const FX_PEAK = 0.085         // the brightest a cell ever gets. Muted is the point
+const FX_PEAK = 0.09          // the brightest a cell ever gets. Muted is the point
 const FX_MAX_FRONTS = 3
-const FX_GAP_MS = [1200, 4200]
+const FX_GAP_MS = [900, 3600]
 
 let fxW = 0, fxH = 0
 let fxCols = 0, fxRows = 0
-let fxHeat = null
+let fxHeat = null             // how lit each cell is, 0..1
+let fxDecay = null            // its own dissolve rate, fixed when the field is built
+let fxStamp = null            // which front has already claimed it
 let fxFronts = []
+let fxFrontId = 0
 let fxRaf = 0
 let fxLast = 0
 let fxNextSpawn = 0
@@ -3109,43 +3123,100 @@ function sizeFx() {
 
     fxCols = Math.ceil(fxW / FX_CELL)
     fxRows = Math.ceil(fxH / FX_CELL)
-    fxHeat = new Float32Array(fxCols * fxRows)
-    fxFronts = []
 
-    return true
-}
+    const n = fxCols * fxRows
+    fxHeat = new Float32Array(n)
+    fxStamp = new Int32Array(n)
+    fxDecay = new Float32Array(n)
 
-function fxLight(x, y) {
-    if (x < 0 || y < 0 || x >= fxCols || y >= fxRows) return
-    fxHeat[y * fxCols + x] = 1
-}
-
-// One ring of the flood, at manhattan distance d - the same four-neighbour
-// walk the capture replay takes, which is why the two read alike.
-function fxRing(f, d) {
-    if (d === 0) { fxLight(f.cx, f.cy); return }
-
-    for (let k = 0; k <= d; k++) {
-        const j = d - k
-        fxLight(f.cx + k, f.cy + j)
-        fxLight(f.cx - k, f.cy - j)
-        fxLight(f.cx + j, f.cy - k)
-        fxLight(f.cx - j, f.cy + k)
+    // Fixed per cell rather than rolled per frame: a cell should dissolve at
+    // its own steady rate, not flicker between rates.
+    for (let i = 0; i < n; i++) {
+        fxDecay[i] = FX_DECAY + (Math.random() - 0.5) * FX_DECAY_VARY
     }
+
+    fxFronts = []
+    return true
 }
 
 function fxSpawn(now) {
     if (fxFronts.length >= FX_MAX_FRONTS) return
 
+    const seed = Math.floor(Math.random() * fxCols)
+        + Math.floor(Math.random() * fxRows) * fxCols
+
+    const id = ++fxFrontId
+    fxStamp[seed] = id
+    fxHeat[seed] = 1
+
     fxFronts.push({
-        cx: Math.floor(Math.random() * fxCols),
-        cy: Math.floor(Math.random() * fxRows),
+        id,
+        frontier: [seed],
         step: 0,
-        max: 5 + Math.floor(Math.random() * 11),
-        next: now,
+        budget: FX_BUDGET,
+        next: now + FX_STEP_MS,
+
+        // Not every front grows the same way. A tight one stays a blob, a loose
+        // one runs off in fingers.
+        spread: FX_SPREAD + (Math.random() - 0.5) * 0.22,
     })
 }
 
+// One step of the front. It offers each frontier cell's four neighbours and
+// takes them at random, which is the whole reason the shapes are shapes.
+function fxGrow(f) {
+    const next = []
+
+    for (const i of f.frontier) {
+        const x = i % fxCols
+        const y = (i / fxCols) | 0
+
+        for (let d = 0; d < 4; d++) {
+            const j = fxNeighbour(x, y, d)
+            if (j < 0 || fxStamp[j] === f.id) continue
+            if (Math.random() > f.spread) continue
+
+            fxStamp[j] = f.id
+            fxHeat[j] = 1
+            next.push(j)
+
+            if (--f.budget <= 0) { f.frontier = []; return }
+        }
+    }
+
+    // A front that happens to refuse all four neighbours in its first steps
+    // dies as a single speck. It is only a few percent of them, but a speck is
+    // not a shape - so while it is still a seedling it takes one regardless.
+    if (!next.length && f.step < 3) {
+        for (const i of f.frontier) {
+            const x = i % fxCols
+            const y = (i / fxCols) | 0
+
+            for (let d = 0; d < 4; d++) {
+                const j = fxNeighbour(x, y, d)
+                if (j < 0 || fxStamp[j] === f.id) continue
+
+                fxStamp[j] = f.id
+                fxHeat[j] = 1
+                next.push(j)
+                break
+            }
+
+            if (next.length) break
+        }
+    }
+
+    f.frontier = next
+}
+
+// The cell one step off in direction d, or -1 when that is off the field.
+function fxNeighbour(x, y, d) {
+    const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0)
+    const ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0)
+
+    if (nx < 0 || ny < 0 || nx >= fxCols || ny >= fxRows) return -1
+    return ny * fxCols + nx
+}
 function fxDraw() {
     fxCtx.clearRect(0, 0, fxW, fxH)
 
@@ -3165,9 +3236,17 @@ function fxDraw() {
         const cells = fxBuckets[b]
         if (!cells.length) continue
 
+        // Dimmer cells are drawn smaller as well as fainter, so a form comes
+        // apart at its edge rather than turning into a grey slab. The floor is a
+        // third of the cell rather than a few pixels - against a cell this big a
+        // speck reads as a dot on the ground instead of a tile leaving it.
+        const size = FX_CELL * (0.34 + 0.66 * (b / (FX_BUCKETS - 1))) - 2
+        const inset = (FX_CELL - size) / 2
+
         fxCtx.globalAlpha = FX_PEAK * ((b + 1) / FX_BUCKETS)
+
         for (let k = 0; k < cells.length; k += 2) {
-            fxCtx.fillRect(cells[k] + 1, cells[k + 1] + 1, FX_CELL - 2, FX_CELL - 2)
+            fxCtx.fillRect(cells[k] + inset, cells[k + 1] + inset, size, size)
         }
     }
 
@@ -3182,7 +3261,7 @@ function fxFrame(now) {
 
     for (let i = 0; i < fxHeat.length; i++) {
         const h = fxHeat[i]
-        if (h) fxHeat[i] = h < FX_MIN ? 0 : h * FX_DECAY
+        if (h) fxHeat[i] = h < FX_MIN ? 0 : h * fxDecay[i]
     }
 
     if (now >= fxNextSpawn) {
@@ -3193,16 +3272,17 @@ function fxFrame(now) {
     for (let i = fxFronts.length - 1; i >= 0; i--) {
         const f = fxFronts[i]
 
-        // Catch up rather than draw one ring a frame: at 30fps and 52ms a step
-        // they are close, but a frame the browser skipped should not slow the
-        // front down.
-        while (f.next <= now && f.step <= f.max) {
-            fxRing(f, f.step)
+        // Catch up rather than grow once a frame: at 30fps and 55ms a step they
+        // are close, but a frame the browser skipped should not slow it down.
+        while (f.next <= now && f.step < FX_MAX_STEPS && f.frontier.length) {
+            fxGrow(f)
             f.step++
             f.next += FX_STEP_MS
         }
 
-        if (f.step > f.max) fxFronts.splice(i, 1)
+        // Spent, walled in, or simply finished - either way it stops growing and
+        // what it drew dissolves on its own.
+        if (f.step >= FX_MAX_STEPS || !f.frontier.length) fxFronts.splice(i, 1)
     }
 
     fxDraw()
