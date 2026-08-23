@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Very Serious Space War — Grid</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600&family=Share+Tech+Mono&display=swap"
+          rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+
+    <!--
+      WharfKit ships ESM only (no UMD build, no window global), so it must load as
+      a module. `?external=` keeps antelope/common/session as a SINGLE shared
+      instance - duplicate copies break instanceof checks at runtime.
+    -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@wharfkit/antelope": "https://esm.sh/@wharfkit/antelope@1.2.0",
+        "@wharfkit/common": "https://esm.sh/@wharfkit/common@1.5.0?external=@wharfkit/antelope",
+        "@wharfkit/session": "https://esm.sh/@wharfkit/session@1.6.1?external=@wharfkit/antelope,@wharfkit/common",
+        "@wharfkit/web-renderer": "https://esm.sh/@wharfkit/web-renderer@1.4.3?external=@wharfkit/antelope,@wharfkit/common,@wharfkit/session",
+        "@wharfkit/wallet-plugin-anchor": "https://esm.sh/@wharfkit/wallet-plugin-anchor@1.7.2?external=@wharfkit/antelope,@wharfkit/common,@wharfkit/session",
+        "@wharfkit/wallet-plugin-cloudwallet": "https://esm.sh/@wharfkit/wallet-plugin-cloudwallet@1.6.5?external=@wharfkit/antelope,@wharfkit/common,@wharfkit/session"
+      }
+    }
+    </script>
+</head>
+<body>
+    <!-- The floor receding to a horizon, and the haze sitting on it. -->
+    <div class="gridfloor" aria-hidden="true"></div>
+    <div class="horizon" aria-hidden="true"></div>
+    <div class="haze" aria-hidden="true"></div>
+
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+                    <circle cx="16" cy="16" r="13.5" fill="none" stroke="currentColor" stroke-width="1.4"
+                            opacity=".45"/>
+                    <circle cx="16" cy="16" r="9.5" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-dasharray="44 16" stroke-linecap="butt"/>
+                    <circle cx="16" cy="16" r="3.2" fill="currentColor"/>
+                </svg>
+                <div class="brand-text">
+                    <span class="brand-name">Very Serious Space War</span>
+                    <span class="brand-sub">Sector Grid</span>
+                </div>
+            </div>
+
+            <div class="topbar-right">
+                <label class="endpoint">
+                    <span class="net-dot" id="endpointDot" role="button" tabindex="0"
+                          title="Re-check endpoints"></span>
+                    <select id="endpointSelect" aria-label="API endpoint"></select>
+                    <span class="endpoint-ping" id="endpointPing">—</span>
+                </label>
+                <button class="btn btn-ghost" id="lobbyBtn" title="Back to the lobby" hidden>
+                    <span class="btn-label">Lobby</span>
+                </button>
+                <button class="btn btn-ghost" id="connectWalletBtn">
+                    <span class="btn-label">Connect Wallet</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="stage">
+            <!-- Login -->
+            <section class="view view-login" id="loginScreen">
+              <div class="login-stack">
+
+                <!-- The title carries the h1; the card below drops to an h2 so the
+                     page has one heading at the top of the outline, not two. -->
+                <header class="hero">
+                    <span class="hero-rule" aria-hidden="true"></span>
+                    <!-- Non-breaking space so that when the title does wrap it
+                         breaks after "Serious", never between "Space" and "War". -->
+                    <h1 class="hero-title">Very Serious Space&nbsp;War</h1>
+                    <p class="hero-tagline">
+                        On a scale of 1 to serious &mdash; it&rsquo;s probably very
+                    </p>
+                </header>
+
+                <div class="auth-card">
+                    <span class="frame-corner tl" aria-hidden="true"></span>
+                    <span class="frame-corner tr" aria-hidden="true"></span>
+                    <span class="frame-corner bl" aria-hidden="true"></span>
+                    <span class="frame-corner br" aria-hidden="true"></span>
+
+                    <div class="auth-head">
+                        <span class="auth-kicker">Access Port</span>
+                        <h2>Enter the Grid</h2>
+                        <p class="auth-sub">
+                            Link a WAX wallet to open the sector chart. Reading the map costs
+                            nothing and signs nothing &mdash; the wallet only identifies you.
+                        </p>
+                    </div>
+
+                    <div class="wallet-choice">
+                        <button type="button" class="wallet-btn" id="waxCloudBtn">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M6.5 19a4.5 4.5 0 0 1-.4-8.98A6 6 0 0 1 17.7 9.2 3.9 3.9 0 0 1 17.5 19z"
+                                      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                            </svg>
+                            <span class="wallet-name">WAX Cloud</span>
+                            <span class="wallet-meta">Browser sign-in</span>
+                        </button>
+                        <button type="button" class="wallet-btn" id="anchorBtn">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="12" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                                <path d="M12 7.5V20M6 12H18M5 14a7 7 0 0 0 14 0" fill="none" stroke="currentColor"
+                                      stroke-width="1.4" stroke-linecap="round"/>
+                            </svg>
+                            <span class="wallet-name">Anchor</span>
+                            <span class="wallet-meta">Desktop &amp; mobile</span>
+                        </button>
+                    </div>
+
+                    <div class="auth-status" id="formStatus">
+                        <span class="dot" id="statusDot"></span>
+                        <span id="statusMessage">Ready</span>
+                    </div>
+                </div>
+
+              </div>
+            </section>
+
+
+            <!-- Lobby -->
+            <!--
+              A game is a scope on chain, so the map view cannot open until one
+              has been picked. This sits between the wallet and the chart for
+              that reason rather than as a menu for its own sake.
+            -->
+            <section class="view view-lobby" id="lobbyScreen" hidden>
+              <div class="lobby-stack">
+                <div class="lobby-main">
+                    <header class="lobby-head">
+                        <span class="hero-rule" aria-hidden="true"></span>
+                        <h1 class="lobby-title">Lobby</h1>
+                        <!-- Written by the script: the interval is a config row, and the
+                             grace window is the contract's, so neither belongs in markup
+                             where it would go quietly out of date. -->
+                        <p class="lobby-sub" id="lobbySub"></p>
+                        <p class="lobby-call">Are you ready to fight?</p>
+                    </header>
+
+                    <div class="launch-card">
+                        <span class="frame-corner tl" aria-hidden="true"></span>
+                        <span class="frame-corner tr" aria-hidden="true"></span>
+                        <span class="frame-corner bl" aria-hidden="true"></span>
+                        <span class="frame-corner br" aria-hidden="true"></span>
+
+                        <div class="launch-main">
+                            <span class="launch-kicker">Next Sector</span>
+                            <div class="launch-clock" id="launchClock">&mdash;</div>
+                            <p class="launch-note" id="launchNote">Reading schedule&hellip;</p>
+                        </div>
+
+                        <!--
+                          launchgame takes no authority beyond whoever pays for it, so
+                          this button is not an admin control - it is the only thing
+                          that makes a scheduled start actually happen.
+                        -->
+                        <button class="btn btn-primary" id="launchBtn" disabled>
+                            <span class="btn-label">Launch</span>
+                        </button>
+                    </div>
+
+                    <div class="lobby-toolbar">
+                        <button class="btn btn-ghost btn-sm" id="lobbyRefreshBtn">
+                            <span class="btn-label">Refresh</span>
+                        </button>
+                    </div>
+
+                    <!-- The one being played, while it is being played. It disappears
+                         the moment somebody wins, and that game reappears below. -->
+                    <section class="lobby-section" id="currentSection" hidden>
+                        <div class="lobby-bar">
+                            <h2 class="lobby-heading">Current game</h2>
+                        </div>
+                        <div class="game-list" id="currentList"></div>
+                    </section>
+
+                    <!-- Visible by default, and hidden by the script only when there is
+                         genuinely nothing to list. The other way round means a browser
+                         holding a cached app.js against a fresh index.html shows an
+                         empty page instead of a slightly stale one - Pages serves both
+                         with a ten minute max-age, so that pairing is not hypothetical. -->
+                    <section class="lobby-section" id="previousSection">
+                        <div class="lobby-bar">
+                            <h2 class="lobby-heading">Previous games</h2>
+                            <span class="lobby-count" id="lobbyCount"></span>
+                        </div>
+                        <div class="game-list" id="gameList"></div>
+                    </section>
+
+                    <p class="lobby-empty" id="lobbyEmpty" hidden>
+                        No game has launched yet. When the schedule comes due, the button
+                        above starts the first one.
+                    </p>
+
+                </div>
+
+                <!-- The 30% column, and a character sheet rather than a sidebar. The
+                     portrait leads because the commander IS the thing being set; the
+                     name and the picker are how you change it. All of it is permanent -
+                     it belongs to the player rather than to a game, and it is the one
+                     thing cleanup never takes. -->
+                <aside class="lobby-side">
+                    <div class="commander-card">
+                        <span class="frame-corner tl" aria-hidden="true"></span>
+                        <span class="frame-corner tr" aria-hidden="true"></span>
+                        <span class="frame-corner bl" aria-hidden="true"></span>
+                        <span class="frame-corner br" aria-hidden="true"></span>
+
+                        <!-- Contained, not cropped: these are portrait cards and cutting
+                             them to a square takes the head off. -->
+                        <figure class="crew-portrait is-empty" id="crewArt">
+                            <figcaption class="crew-portrait-empty" id="crewArtEmpty">
+                                No commander
+                            </figcaption>
+                        </figure>
+
+                        <div class="crew-ident">
+                            <b id="crewName">No commander</b>
+                            <span class="crew-boost" id="crewBoost">1&times; score</span>
+                        </div>
+
+                        <p class="crew-score" id="permScore"></p>
+
+                        <label class="field-name" for="permName">
+                            Call sign
+                            <input type="text" id="permName" maxlength="15"
+                                   placeholder="Your name across every game"
+                                   autocomplete="off" spellcheck="false">
+                        </label>
+
+                        <div class="crew-picker">
+                            <div class="crew-pickhead">
+                                <span class="crew-label">Your crew.worlds</span>
+                                <span class="crew-count" id="crewCount"></span>
+                            </div>
+                            <div class="crew-grid" id="crewGrid"></div>
+                            <p class="crew-hint" id="crewHint">Connect a wallet to choose one.</p>
+                        </div>
+
+                        <button class="btn btn-primary" id="permSaveBtn" disabled>
+                            <span class="btn-label">Save</span>
+                        </button>
+                    </div>
+                </aside>
+              </div>
+            </section>
+
+            <!-- Map -->
+            <section class="view view-map" id="mapScreen" hidden>
+                <div class="map-grid">
+                    <div class="col-main">
+                        <div class="viewport-frame">
+                            <span class="frame-corner tl" aria-hidden="true"></span>
+                            <span class="frame-corner tr" aria-hidden="true"></span>
+                            <span class="frame-corner bl" aria-hidden="true"></span>
+                            <span class="frame-corner br" aria-hidden="true"></span>
+                            <span class="scanlines" aria-hidden="true"></span>
+                            <span class="sweep" aria-hidden="true"></span>
+
+                            <div class="viewport-tag" id="viewportTag">SECTOR CHART</div>
+
+                            <!--
+                              The map is a canvas, not DOM. A 200x200 grid is 40,000
+                              tiles; as elements that is a multi-second layout and a
+                              janky pan. Only the tiles inside the viewport are ever
+                              drawn, and past a size threshold the whole field
+                              collapses to one blit of a precomputed light field.
+                            -->
+                            <div class="canvas-wrap" id="canvasWrap">
+                                <canvas id="mapCanvas"></canvas>
+                            </div>
+
+                            <div class="viewport-overlay" id="mapOverlay">
+                                <div class="spinner"></div>
+                                <p id="overlayText">Reading chain</p>
+                            </div>
+
+                            <div class="map-tools">
+                                <button type="button" class="tool" id="zoomOutBtn" title="Zoom out">&minus;</button>
+                                <span class="tool-read" id="zoomRead">1.0&times;</span>
+                                <button type="button" class="tool" id="zoomInBtn" title="Zoom in">+</button>
+                                <button type="button" class="tool tool-wide" id="fitBtn"
+                                        title="Fit map to frame">Fit</button>
+                                <button type="button" class="tool tool-refresh" id="refreshBtn"
+                                        title="Re-read this sector from chain">
+                                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                                        <path d="M13.6 8a5.6 5.6 0 1 1-1.65-3.96M13.4 2.2v3.1h-3.1"
+                                              fill="none" stroke="currentColor" stroke-width="1.6"
+                                              stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span class="sr-only">Refresh map</span>
+                                </button>
+                                <button type="button" class="tool tool-wide" id="namesBtn"
+                                        title="Label each territory with its owner - banked power stays either way"
+                                        aria-pressed="true">Names</button>
+                            </div>
+
+                            <div class="hud" id="hud" hidden>
+                                <span class="hud-cell"><em>ROW</em><b id="hudRow">&mdash;</b></span>
+                                <span class="hud-cell"><em>COL</em><b id="hudCol">&mdash;</b></span>
+                                <span class="hud-cell hud-wide"><em>OWNER</em><b id="hudOwner">&mdash;</b></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <aside class="col-side">
+                        <!--
+                          Which sector is on screen. The map and the roster are
+                          scoped by this name on chain, so it is not decoration -
+                          it is the thing every read below is scoped to.
+                        -->
+                        <div class="panel panel-op">
+                            <div class="panel-head">
+                                <h2>Game</h2>
+                                <span class="chip" id="opState">&mdash;</span>
+                            </div>
+
+                            <b class="op-when" id="opWhen">&mdash;</b>
+
+                            <div class="op-stats">
+                                <span><em>ELAPSED</em><b id="opElapsed">&mdash;</b></span>
+                                <span><em>COMMANDERS</em><b id="opPlayers">&mdash;</b></span>
+                            </div>
+
+                            <p class="op-grace" id="opGrace" hidden></p>
+                            <p class="op-win" id="opWin" hidden></p>
+                            <p class="warn-line" id="gapWarning" hidden></p>
+                        </div>
+
+                        <!--
+                          Deploy, or your standing once deployed. The tile comes from
+                          whatever is selected on the map, so the two halves of the
+                          spawn action are the map click and this panel.
+                        -->
+                        <div class="panel">
+                            <div class="panel-head">
+                                <h2>Commander</h2>
+                                <span class="chip chip-muted" id="cmdState">&mdash;</span>
+                            </div>
+
+                            <div id="cmdActive" hidden>
+                                <div class="cmd-id">
+                                    <span class="cmd-swatch" id="cmdSwatch"></span>
+                                    <span class="cmd-name" id="cmdName">&mdash;</span>
+                                </div>
+                                <div class="stats">
+                                    <div class="stat">
+                                        <span class="stat-label">Power</span>
+                                        <span class="stat-value" id="cmdPower">&mdash;</span>
+                                    </div>
+                                    <div class="stat">
+                                        <span class="stat-label">Tiles</span>
+                                        <span class="stat-value" id="cmdTiles">&mdash;</span>
+                                    </div>
+                                    <div class="stat">
+                                        <span class="stat-label">Score</span>
+                                        <span class="stat-value" id="cmdScore">&mdash;</span>
+                                    </div>
+                                </div>
+
+                                <!-- Banked power accrues in real time, so this ticks
+                                     between reads rather than only on refresh. -->
+                                <div class="bank">
+                                    <div class="bank-top">
+                                        <span>Banked power</span>
+                                        <b id="cmdBank">&mdash;</b>
+                                    </div>
+                                    <div class="bank-meter"><div class="bank-fill" id="cmdBankBar"></div></div>
+                                    <div class="bank-foot">
+                                        <span class="bank-cap" id="cmdBankCap">&mdash;</span>
+                                        <span class="bank-rate" id="cmdBankRate">&mdash;</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="cmdDeploy" hidden>
+                                <div class="field">
+                                    <label for="cmdUsername">Call sign</label>
+                                    <input type="text" id="cmdUsername" maxlength="15"
+                                           autocomplete="off" placeholder="Up to 15 characters">
+                                </div>
+
+                                <div class="cmd-rows">
+                                    <div class="cmd-row">
+                                        <span>Tile</span><b id="cmdTile">none selected</b>
+                                    </div>
+                                    <div class="cmd-row">
+                                        <span>Starting power</span><b id="cmdTilePower">&mdash;</b>
+                                    </div>
+                                </div>
+
+                                <button class="btn btn-primary cmd-deploy" id="spawnBtn" disabled>
+                                    <span class="btn-label">Deploy</span>
+                                </button>
+                                <p class="cmd-hint" id="cmdHint">
+                                    Click a tile on the map to choose where to deploy.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!--
+                          Click any tile of a colour that touches your territory
+                          anywhere; the client resolves that to the bordering tile of
+                          that colour nearest what you clicked, and that is where the
+                          strike lands.
+                        -->
+                        <div class="panel" id="attackPanel" hidden>
+                            <div class="panel-head">
+                                <h2>Attack</h2>
+                                <span class="chip chip-muted" id="atkState">&mdash;</span>
+                            </div>
+
+                            <div class="cmd-rows">
+                                <div class="cmd-row">
+                                    <span>Target</span><b id="atkTarget">&mdash;</b>
+                                </div>
+                            </div>
+
+                            <!-- Only shown for a target you can actually reach. The rows
+                                 above describe anyone you click, reachable or not. -->
+                            <div id="atkControls" hidden>
+
+                            <!-- A share of the bank rather than an absolute figure.
+                                 The bank grows every second, so an absolute value
+                                 goes stale the moment it is set; a percentage does
+                                 not. -->
+                            <div class="field field-slider">
+                                <label for="atkPower">
+                                    Power to commit
+                                    <b id="atkPowerRead">50%</b>
+                                </label>
+                                <input type="range" id="atkPower" min="1" max="100" step="1" value="50">
+                                <div class="slider-ends">
+                                    <span>1%</span>
+                                    <span>100%</span>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary cmd-deploy" id="attackBtn" disabled>
+                                <span class="btn-label">Attack</span>
+                            </button>
+
+                            </div>
+
+                            <p class="cmd-hint" id="atkHint">Select a tile to attack.</p>
+                        </div>
+
+                        <!--
+                          The whole sector at a glance, drawn from the same density
+                          bitmap the far-zoom view uses. Click or drag to jump.
+                        -->
+                        <div class="panel">
+                            <div class="panel-head">
+                                <h2>Sector</h2>
+                                <span class="chip chip-muted">click to jump</span>
+                            </div>
+                            <canvas class="minimap" id="minimap"></canvas>
+                        </div>
+
+                    </aside>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="toast" id="errorToast" hidden></div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

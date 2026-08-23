@@ -1,0 +1,5 @@
+# Working copies kept while editing.
+*.bak
+
+# Windows "downloaded from the internet" metadata streams.
+*Zone.Identifier*

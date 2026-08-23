@@ -1,0 +1,1862 @@
+/* ==========================================================================
+   Very Serious Space War — sector grid
+   Nothing here is made of material. Surfaces are black; every edge, control and
+   value is a line of light. Cyan is the system — the grid, the data, anything
+   you can touch. Amber is the only other voice and it is reserved for state that
+   demands attention: live sessions, warnings, failures. Terrain value is carried
+   by how far a circuit is built out, never by hue.
+   ========================================================================== */
+
+:root {
+    --void:          #000306;
+    --void-lift:     #01060b;
+    --panel:         rgba(6, 16, 22, .72);
+    --panel-solid:   #040d13;
+
+    --line:          rgba(34, 224, 255, .22);
+    --line-soft:     rgba(34, 224, 255, .10);
+    --line-bright:   rgba(34, 224, 255, .55);
+
+    --text:          #cdf3ff;
+    --text-muted:    #6f96a4;
+    --text-faint:    #3f606c;
+
+    /* The system. */
+    --cyan:          #22e0ff;
+    --cyan-hot:      #b6f6ff;
+    --cyan-deep:     #0a5a6c;
+    --glow:          rgba(34, 224, 255, .45);
+    --glow-soft:     rgba(34, 224, 255, .16);
+
+    /* The other voice. Attention only — never an encoding. */
+    --amber:         #ffb03a;
+    --amber-glow:    rgba(255, 176, 58, .38);
+
+    --danger:        #ff5169;
+    --success:       #22e0ff;
+
+    /* The map deck. Value is how far a node's circuit is built out; hue stays
+       free for ownership, factions and resources. */
+    --deck:          #000508;
+    --deck-line:     rgba(34, 224, 255, .13);
+    --deck-void:     #000000;
+    --ink:           #22e0ff;
+    --ink-hot:       #d8fbff;
+    --ink-dim:       #16788c;
+    --ink-bloom:     rgba(34, 224, 255, .30);
+
+    --font: 'Chakra Petch', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --display: 'Chakra Petch', system-ui, sans-serif;
+    --mono: 'Share Tech Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+    /* One corner cut, hard. A single chamfer reads as a machined part; cutting
+       every corner just reads as a rounded box. */
+    --cut: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+    --cut-sm: polygon(9px 0, 100% 0, 100% 100%, 0 100%, 0 9px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* `hidden` is only display:none from the UA stylesheet, so any author rule that
+   sets `display` silently defeats it. Enforce it globally. */
+[hidden] { display: none !important; }
+
+html, body {
+    height: 100%;
+    background: var(--void);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+body { overflow: hidden; }
+
+button, input, select { font: inherit; color: inherit; }
+
+/* Display voice: light weight, wide tracking, uppercase. Thin and stretched
+   reads as projected light; bold reads as printed ink. */
+.brand-name, .brand-sub, .panel-head h2, .auth-head h2, .auth-kicker, .stat-label,
+.viewport-tag, .wallet-name, .hud em, .tool-wide, .btn {
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-weight: 500;
+}
+
+.stat-value, .chip, .endpoint-ping, .tool-read, .hud b,
+.btn-ghost .btn-label {
+    font-family: var(--mono);
+    letter-spacing: .04em;
+}
+
+/* ── The floor ──────────────────────────────────────────────────────────── */
+
+/* The grid receding to a horizon. A perspective transform on two repeating
+   gradients — a real 3D floor for four lines of CSS. */
+.gridfloor {
+    position: fixed;
+    left: -60%; right: -60%; bottom: -4vh;
+    height: 62vh;
+    pointer-events: none;
+    transform: perspective(340px) rotateX(66deg);
+    transform-origin: 50% 100%;
+    background-image:
+        repeating-linear-gradient(90deg, rgba(34, 224, 255, .32) 0 1px, transparent 1px 72px),
+        repeating-linear-gradient(0deg,  rgba(34, 224, 255, .32) 0 1px, transparent 1px 72px);
+    mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, .35) 42%, transparent 78%);
+    opacity: .55;
+}
+
+/* The bright seam where the floor meets the sky. */
+.horizon {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 58vh;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--cyan) 22%, var(--cyan-hot) 50%, var(--cyan) 78%, transparent);
+    opacity: .22;
+    box-shadow: 0 0 26px 3px var(--glow-soft);
+}
+
+.haze {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(1200px 520px at 50% 108%, rgba(34, 224, 255, .13), transparent 66%),
+        radial-gradient(900px 600px at 84% -12%, rgba(34, 224, 255, .07), transparent 62%);
+}
+
+.app {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Top bar ────────────────────────────────────────────────────────────── */
+
+.topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 15px 24px;
+    background: linear-gradient(180deg, rgba(2, 10, 15, .92), rgba(1, 6, 10, .72));
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 22px -6px var(--glow);
+    backdrop-filter: blur(6px);
+}
+
+.brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+
+.brand-mark {
+    width: 32px; height: 32px;
+    color: var(--cyan);
+    filter: drop-shadow(0 0 8px var(--glow));
+    flex: none;
+    animation: disc 18s linear infinite;
+}
+@keyframes disc { to { transform: rotate(360deg); } }
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.brand-name {
+    font-size: 17px;
+    color: var(--text);
+    text-shadow: 0 0 14px var(--glow-soft);
+}
+.brand-sub { font-size: 9.5px; color: var(--cyan); opacity: .7; }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.endpoint {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 12px;
+    background: rgba(3, 12, 18, .7);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+}
+
+.endpoint select {
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    max-width: 210px;
+    cursor: pointer;
+}
+.endpoint select:disabled { cursor: default; opacity: .6; }
+.endpoint select option { background: #04121a; color: var(--text); }
+
+.net-dot {
+    width: 7px; height: 7px;
+    flex: none;
+    background: var(--cyan);
+    box-shadow: 0 0 10px 1px currentColor;
+    color: var(--cyan);
+    cursor: pointer;
+    transform: rotate(45deg);
+}
+.net-dot.is-checking { background: var(--amber); color: var(--amber); animation: pulse 1.1s infinite; }
+.net-dot.is-down     { background: var(--danger); color: var(--danger); }
+
+@keyframes pulse { 50% { opacity: .25; } }
+
+.endpoint-ping { font-size: 11px; color: var(--text-faint); min-width: 42px; text-align: right; }
+.endpoint-ping.is-fast { color: var(--cyan); }
+.endpoint-ping.is-mid  { color: var(--amber); }
+.endpoint-ping.is-slow { color: var(--danger); }
+
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 20px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    background: rgba(4, 14, 20, .6);
+    border: 1px solid var(--line);
+    clip-path: var(--cut-sm);
+    transition: color .16s, border-color .16s, box-shadow .16s, background .16s;
+}
+.btn:hover:not(:disabled) {
+    color: var(--cyan-hot);
+    border-color: var(--cyan);
+    box-shadow: 0 0 22px -4px var(--glow), 0 0 14px -6px var(--glow) inset;
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* The primary control carries a light bar along its cut edge rather than a
+   fill — the button is a circuit that is energised, not a painted surface. */
+.btn-primary {
+    color: var(--cyan-hot);
+    border-color: var(--cyan);
+    background: linear-gradient(180deg, rgba(34, 224, 255, .13), rgba(34, 224, 255, .03));
+    box-shadow: 0 0 24px -6px var(--glow);
+}
+.btn-primary::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px;
+    background: var(--cyan);
+    box-shadow: 0 0 12px 1px var(--glow);
+}
+.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(34, 224, 255, .24), rgba(34, 224, 255, .06));
+    box-shadow: 0 0 34px -4px var(--glow);
+}
+
+/* A live session is state, not a control — so it takes amber. */
+.btn-ghost.is-connected {
+    color: var(--amber);
+    border-color: rgba(255, 176, 58, .45);
+    box-shadow: 0 0 20px -6px var(--amber-glow);
+}
+.btn-ghost.is-connected:hover { color: var(--amber); border-color: var(--amber); }
+.btn-ghost .btn-label { text-transform: none; letter-spacing: .04em; font-size: 12.5px; }
+
+/* ── Stage / views ──────────────────────────────────────────────────────── */
+
+.stage { flex: 1; min-height: 0; display: flex; }
+.view  { flex: 1; min-height: 0; }
+
+.view-login { display: grid; place-items: center; padding: 28px; }
+
+.login-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 34px;
+    /* Wider than the card beneath it, so the full name gets one line on a
+       desktop instead of being forced to wrap inside a 540px column. */
+    width: min(820px, 100%);
+}
+
+/* ── Title ──────────────────────────────────────────────────────────────── */
+
+.hero { width: 100%; text-align: center; }
+
+/* A struck line above the title, brightest at the centre, so the title reads as
+   projected onto the grid rather than typed onto it. */
+.hero-rule {
+    display: block;
+    width: 100%;
+    height: 1px;
+    margin-bottom: 22px;
+    background: linear-gradient(90deg, transparent, var(--cyan) 30%, var(--cyan-hot) 50%, var(--cyan) 70%, transparent);
+    box-shadow: 0 0 22px 2px var(--glow-soft);
+    opacity: .65;
+}
+
+.hero-title {
+    font-family: var(--display);
+    /* Scales with the viewport: the full name is long, and at a fixed size it
+       wraps mid-word on a phone. */
+    font-size: clamp(26px, 5.6vw, 46px);
+    font-weight: 300;
+    line-height: 1.08;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    /* When it does have to wrap, balance keeps the two lines even rather than
+       leaving one orphaned word on the second. */
+    text-wrap: balance;
+    color: var(--text);
+    text-shadow:
+        0 0 18px var(--glow),
+        0 0 60px rgba(34, 224, 255, .22);
+}
+
+.hero-tagline {
+    margin-top: 14px;
+    font-size: clamp(12px, 1.6vw, 14px);
+    letter-spacing: .06em;
+    color: var(--text-muted);
+}
+
+.auth-card {
+    position: relative;
+    width: min(540px, 100%);
+    padding: 40px 38px 26px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    clip-path: var(--cut);
+    box-shadow: 0 0 60px -10px var(--glow), 0 0 90px rgba(0, 0, 0, .8);
+    backdrop-filter: blur(8px);
+}
+
+.auth-kicker {
+    display: block;
+    font-size: 10px;
+    color: var(--cyan);
+    opacity: .75;
+    margin-bottom: 8px;
+}
+
+.auth-head h2 {
+    font-size: 26px;
+    font-weight: 300;
+    letter-spacing: .16em;
+    color: var(--text);
+    text-shadow: 0 0 26px var(--glow-soft);
+}
+
+.auth-sub {
+    margin-top: 14px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.7;
+    max-width: 42ch;
+}
+
+.wallet-choice {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 13px;
+    margin: 30px 0 22px;
+}
+
+.wallet-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 18px;
+    cursor: pointer;
+    color: var(--text-muted);
+    background: rgba(3, 12, 18, .55);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    transition: border-color .16s, box-shadow .16s, color .16s, background .16s;
+}
+.wallet-btn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--cyan);
+    background: rgba(34, 224, 255, .06);
+    box-shadow: 0 0 28px -8px var(--glow);
+}
+.wallet-btn:active:not(:disabled) { transform: translateY(1px); }
+.wallet-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.wallet-btn svg {
+    width: 26px; height: 26px;
+    color: var(--cyan);
+    margin-bottom: 7px;
+    filter: drop-shadow(0 0 6px var(--glow-soft));
+}
+.wallet-name { font-size: 13px; color: var(--text); }
+.wallet-meta { font-size: 11.5px; color: var(--text-faint); text-transform: none; letter-spacing: 0; }
+
+.auth-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+.dot {
+    width: 6px; height: 6px;
+    background: var(--text-faint);
+    flex: none;
+    transform: rotate(45deg);
+}
+.dot.is-busy  { background: var(--amber); box-shadow: 0 0 9px var(--amber); animation: pulse 1.1s infinite; }
+.dot.is-error { background: var(--danger); box-shadow: 0 0 9px var(--danger); }
+.dot.is-ok    { background: var(--cyan); box-shadow: 0 0 9px var(--cyan); }
+
+/* ── Map layout ─────────────────────────────────────────────────────────── */
+
+.view-map { padding: 18px; min-width: 0; }
+
+.map-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 312px;
+    gap: 18px;
+    height: 100%;
+    min-height: 0;
+}
+
+.col-main { min-width: 0; min-height: 0; display: flex; }
+
+.col-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+/* ── Viewport ───────────────────────────────────────────────────────────── */
+
+.viewport-frame {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--deck-void);
+    border: 1px solid var(--line);
+    clip-path: var(--cut);
+    box-shadow: 0 0 70px -14px var(--glow), 0 0 0 1px rgba(34, 224, 255, .05) inset;
+}
+
+.canvas-wrap { position: absolute; inset: 0; }
+#mapCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+}
+#mapCanvas.is-panning { cursor: grabbing; }
+
+/* Vignette, over the canvas, so the grid falls off into the frame instead of
+   stopping at a hard edge. */
+.viewport-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: radial-gradient(125% 115% at 50% 45%, transparent 48%, rgba(0, 2, 4, .82) 100%);
+}
+
+/* Screen texture only. Any heavier and it fights the node marks for the same
+   pixels, which is exactly what happened at .3. */
+.scanlines {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    opacity: .1;
+    background: repeating-linear-gradient(180deg, rgba(0, 0, 0, .6) 0 1px, transparent 1px 4px);
+}
+
+/* A read head crossing the plate. Pure CSS transform, so it costs the compositor
+   and not the render loop. */
+.sweep {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 180px;
+    z-index: 3;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(34, 224, 255, .07) 45%, rgba(34, 224, 255, .13) 50%, rgba(34, 224, 255, .07) 55%, transparent);
+    animation: sweep 9s cubic-bezier(.55, 0, .45, 1) infinite;
+}
+@keyframes sweep {
+    0%        { transform: translateX(-200px); opacity: 0; }
+    12%, 78%  { opacity: 1; }
+    100%      { transform: translateX(calc(100vw + 200px)); opacity: 0; }
+}
+
+.frame-corner {
+    position: absolute;
+    z-index: 4;
+    width: 20px; height: 20px;
+    pointer-events: none;
+    border: 1px solid var(--cyan);
+    opacity: .8;
+    filter: drop-shadow(0 0 5px var(--glow));
+}
+.frame-corner.tl { top: 9px;    left: 9px;  border-right: 0; border-bottom: 0; }
+.frame-corner.tr { top: 9px;    right: 9px; border-left: 0;  border-bottom: 0; }
+.frame-corner.bl { bottom: 9px; left: 9px;  border-right: 0; border-top: 0; }
+.frame-corner.br { bottom: 9px; right: 9px; border-left: 0;  border-top: 0; }
+
+.viewport-tag {
+    position: absolute;
+    top: 13px; left: 38px;
+    z-index: 4;
+    font-size: 9.5px;
+    color: var(--cyan);
+    pointer-events: none;
+    text-shadow: 0 0 12px var(--glow);
+}
+
+.viewport-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 16px;
+    background: rgba(0, 3, 6, .88);
+    backdrop-filter: blur(2px);
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .22em;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* Two counter-rotating arcs — an identity disc spinning up. */
+.spinner {
+    width: 40px; height: 40px;
+    border: 1px solid transparent;
+    border-top-color: var(--cyan);
+    border-right-color: var(--cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 16px -2px var(--glow);
+    animation: spin 1.1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Map tools ──────────────────────────────────────────────────────────── */
+
+.map-tools {
+    position: absolute;
+    z-index: 5;
+    top: 10px; right: 36px;
+    display: flex;
+    align-items: stretch;
+    gap: 5px;
+}
+
+.tool {
+    min-width: 30px;
+    padding: 6px 9px;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted);
+    background: rgba(2, 10, 15, .82);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    transition: color .16s, border-color .16s, box-shadow .16s;
+}
+.tool:hover { color: var(--cyan-hot); border-color: var(--cyan); box-shadow: 0 0 16px -4px var(--glow); }
+.tool-wide { font-size: 10px; padding: 6px 12px; }
+
+.tool[aria-pressed="true"] {
+    color: var(--cyan-hot);
+    border-color: var(--cyan);
+    background: rgba(34, 224, 255, .12);
+    box-shadow: 0 0 18px -4px var(--glow);
+}
+
+.tool-read {
+    display: grid;
+    place-items: center;
+    min-width: 50px;
+    padding: 0 8px;
+    font-size: 11px;
+    color: var(--cyan);
+    background: rgba(2, 10, 15, .82);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+}
+
+/* ── HUD readout ────────────────────────────────────────────────────────── */
+
+.hud {
+    position: absolute;
+    z-index: 5;
+    left: 36px; bottom: 15px;
+    display: flex;
+    gap: 1px;
+    pointer-events: none;
+    background: var(--line-soft);
+    border: 1px solid var(--line);
+    clip-path: var(--cut-sm);
+    box-shadow: 0 0 24px -8px var(--glow);
+}
+
+.hud-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 56px;
+    padding: 6px 11px;
+    background: rgba(1, 8, 12, .94);
+}
+.hud-wide { min-width: 96px; }
+.hud em { font-style: normal; font-size: 8.5px; color: var(--text-faint); letter-spacing: .2em; }
+.hud b  { font-size: 13px; font-weight: 400; color: var(--cyan); text-shadow: 0 0 10px var(--glow-soft); }
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+
+.panel {
+    position: relative;
+    flex: none;
+    padding: 15px 16px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    backdrop-filter: blur(6px);
+}
+
+/* A light seam down the uncut edge. One lit edge does more to place a panel in
+   this world than any amount of border would. */
+.panel::before {
+    content: '';
+    position: absolute;
+    top: 9px; bottom: 0; left: 0;
+    width: 1px;
+    background: linear-gradient(180deg, var(--cyan), transparent 85%);
+    box-shadow: 0 0 10px var(--glow);
+    opacity: .8;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 11px;
+    margin-bottom: 13px;
+    border-bottom: 1px solid var(--line-soft);
+}
+.panel-head h2 { font-size: 11.5px; color: var(--text); }
+
+.chip {
+    padding: 3px 9px;
+    font-size: 11px;
+    background: rgba(3, 12, 18, .6);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+}
+.chip-muted { color: var(--text-faint); }
+
+/* Refresh sits on the map now, in the chunk toggle's old slot. It is an icon
+   rather than a word because it is the one control up there that acts on the
+   chain instead of on the view, and a spinning glyph says "working" where a
+   text label cannot. */
+.tool-refresh svg { display: block; width: 15px; height: 15px; }
+.tool-refresh.is-busy svg { animation: spin .9s linear infinite; }
+.tool:disabled { opacity: .4; cursor: default; }
+.tool:disabled:hover { color: var(--text-muted); border-color: var(--line-soft); box-shadow: none; }
+
+/* Visible to a screen reader, absent from the layout. The refresh tool carries
+   no visible text, so this is the only name it has. */
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Columns follow the number of stats actually present rather than being fixed
+   at three, so commenting one out does not leave a hole. */
+.stats {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 1px;
+    margin-top: 15px;
+    background: var(--line-soft);
+    border: 1px solid var(--line-soft);
+}
+.stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 11px;
+    background: rgba(1, 8, 12, .8);
+}
+.stat-label { font-size: 8.5px; color: var(--text-faint); letter-spacing: .2em; }
+.stat-value { font-size: 15px; color: var(--cyan); text-shadow: 0 0 12px var(--glow-soft); }
+
+.warn-line {
+    margin-top: 13px;
+    padding: 9px 11px;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--amber);
+    background: rgba(255, 176, 58, .06);
+    border-left: 2px solid var(--amber);
+    box-shadow: -6px 0 18px -10px var(--amber-glow);
+}
+
+/* ── Minimap ────────────────────────────────────────────────────────────── */
+
+.minimap {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    cursor: crosshair;
+    touch-action: none;
+    background: var(--deck-void);
+    border: 1px solid var(--line-soft);
+    box-shadow: 0 0 22px -8px var(--glow);
+}
+
+/* ── Commander ──────────────────────────────────────────────────────────── */
+
+.cmd-id {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+/* Filled from the player's own hex_color, so it matches their territory on the
+   map exactly. */
+.cmd-swatch {
+    width: 14px; height: 14px;
+    flex: none;
+    transform: rotate(45deg);
+    background: var(--cyan);
+    box-shadow: 0 0 10px 1px currentColor;
+}
+
+.cmd-name {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+}
+
+.field { margin-bottom: 12px; }
+.field label {
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--display);
+    font-size: 9px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+.field input {
+    width: 100%;
+    padding: 9px 11px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    background: rgba(1, 8, 12, .8);
+    border: 1px solid var(--line-soft);
+    outline: 0;
+    clip-path: var(--cut-sm);
+    transition: border-color .16s, box-shadow .16s;
+}
+.field input:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 18px -6px var(--glow);
+}
+.field input::placeholder { color: var(--text-faint); }
+
+/* ── Slider ─────────────────────────────────────────────────────────────── */
+
+.field-slider label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+.field-slider label b {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: .02em;
+    text-transform: none;
+    color: var(--cyan);
+    text-shadow: 0 0 12px var(--glow-soft);
+}
+
+/* A range input renders as a stock grey control unless every part is taken
+   over, so appearance is stripped and track and thumb are drawn from scratch. */
+.field-slider input[type="range"] {
+    /* How far along the knob is, 0..100, written by the script on every change.
+       The fallback matches the markup's own value= so the control is right for
+       the frame before the first paint. */
+    --fill: 50;
+
+    /* Where the filled part has to stop, which is NOT the bare percentage. A
+       thumb travels between its own half-widths, so its centre at v% sits at
+       half a thumb in plus v% of what is left - with the 13px thumb the rules
+       below draw. Using the percentage straight would leave the colour running
+       past the knob at one end and stopping short of it at the other. */
+    --fill-stop: calc(6.5px + (100% - 13px) * var(--fill) / 100);
+
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 22px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    cursor: pointer;
+    clip-path: none;
+}
+.field-slider input[type="range"]:focus { box-shadow: none; }
+
+/* Everything behind the knob takes the knob's own colour. Firefox has a
+   ::-moz-range-progress that would do this by itself, but a gradient on the
+   track works in both engines and keeps one rule to reason about rather than
+   two that could drift apart. */
+.field-slider input[type="range"]::-webkit-slider-runnable-track {
+    height: 3px;
+    background: linear-gradient(to right,
+        var(--cyan) 0 var(--fill-stop),
+        rgba(34, 224, 255, .14) var(--fill-stop) 100%);
+    border: 0;
+}
+.field-slider input[type="range"]::-moz-range-track {
+    height: 3px;
+    background: linear-gradient(to right,
+        var(--cyan) 0 var(--fill-stop),
+        rgba(34, 224, 255, .14) var(--fill-stop) 100%);
+    border: 0;
+}
+
+/* Rotated square, matching the node cores on the map. */
+.field-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px; height: 13px;
+    margin-top: -5px;
+    background: var(--cyan);
+    border: 0;
+    border-radius: 0;
+    transform: rotate(45deg);
+    box-shadow: 0 0 12px 1px var(--glow);
+}
+.field-slider input[type="range"]::-moz-range-thumb {
+    width: 13px; height: 13px;
+    background: var(--cyan);
+    border: 0;
+    border-radius: 0;
+    transform: rotate(45deg);
+    box-shadow: 0 0 12px 1px var(--glow);
+}
+
+.field-slider input[type="range"]:disabled { cursor: not-allowed; opacity: .4; }
+
+.slider-ends {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+}
+
+.cmd-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 13px;
+    background: var(--line-soft);
+    border: 1px solid var(--line-soft);
+}
+.cmd-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 11px;
+    background: rgba(1, 8, 12, .8);
+    font-size: 11.5px;
+    color: var(--text-faint);
+}
+.cmd-row b {
+    font-family: var(--mono);
+    font-weight: 400;
+    color: var(--cyan);
+}
+
+.cmd-deploy { width: 100%; }
+
+/* ── Banked power ───────────────────────────────────────────────────────── */
+
+.bank { margin-top: 14px; }
+
+.bank-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+}
+.bank-top b {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 14px;
+    color: var(--cyan);
+    text-shadow: 0 0 12px var(--glow-soft);
+}
+
+.bank-meter {
+    height: 3px;
+    margin-top: 6px;
+    background: rgba(34, 224, 255, .08);
+    overflow: hidden;
+}
+.bank-fill {
+    height: 100%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--glow);
+    transition: width .4s linear;
+}
+
+/* Amber, because a full bank is state that wants attention: nothing more is
+   accruing until it is spent. */
+.bank-fill.is-full { background: var(--amber); box-shadow: 0 0 8px var(--amber-glow); }
+
+/* What the bank is heading for, and how fast. The ceiling is context and stays
+   faint; the rate earns the system's own colour because it is the number that
+   decides whether waiting is worth anything, and it is set on chain rather than
+   fixed - a player has no way to know it otherwise. */
+.bank-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 5px;
+}
+
+.bank-cap {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+}
+
+.bank-rate {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--cyan);
+    white-space: nowrap;
+}
+
+.cmd-hint {
+    margin-top: 10px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-faint);
+}
+.cmd-hint.is-ready { color: var(--cyan); }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+
+.toast {
+    position: fixed;
+    z-index: 40;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    max-width: min(560px, calc(100vw - 40px));
+    padding: 12px 20px;
+    font-size: 13px;
+    background: rgba(2, 10, 15, .94);
+    border: 1px solid var(--line);
+    clip-path: var(--cut-sm);
+    backdrop-filter: blur(6px);
+}
+.toast.is-error   { border-color: var(--danger); color: #ffd2d8; box-shadow: 0 0 30px -8px rgba(255, 81, 105, .5); }
+.toast.is-info    { border-color: var(--cyan);   color: var(--cyan-hot); box-shadow: 0 0 30px -8px var(--glow); }
+.toast.is-pending { border-color: var(--amber);  color: #ffe4bb; box-shadow: 0 0 30px -8px var(--amber-glow); }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+    body { overflow: auto; }
+    .app { height: auto; min-height: 100%; }
+    .map-grid { grid-template-columns: minmax(0, 1fr); }
+    .col-main { min-height: 62vh; }
+    .col-side { overflow: visible; }
+}
+
+@media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; gap: 12px; }
+    .topbar-right { width: 100%; flex-wrap: wrap; }
+    .endpoint select { max-width: 150px; }
+    .wallet-choice { grid-template-columns: 1fr; }
+    .map-tools { right: 14px; }
+    .hud { left: 14px; flex-wrap: wrap; }
+    .auth-head h2 { font-size: 21px; }
+}
+
+/* The sweep and the spinning disc are decoration; motion sensitivity outranks
+   atmosphere. */
+@media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important; }
+    .sweep { display: none; }
+}
+
+/* ── The lobby ──────────────────────────────────────────────────────────── */
+/* A game is a scope on chain, so there is no single map to open into any more.
+   This is the room between the wallet and the chart. It borrows the login's
+   card language rather than inventing a third one — same chamfer, same lit
+   seam, same reserve of amber for state that wants attention. */
+
+.lobby-title, .launch-kicker, .game-title, .game-stats em, .op-stats em, .lobby-count {
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-weight: 500;
+}
+
+.launch-clock, .game-stats b, .op-stats b {
+    font-family: var(--mono);
+    letter-spacing: .04em;
+}
+
+/* Two regions filling the screen, each scrolling on its own. The right thirty
+   per cent is not a sidebar sitting on the lobby - it is its own surface, opaque
+   enough that the grid floor and the horizon stop at its edge. */
+.view-lobby {
+    display: grid;
+    grid-template-columns: 70% 30%;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Seventy against thirty: the games on the left, which come and go, and the
+   player on the right, who does not. Wider than the old single column so the
+   left keeps the measure it had. */
+/* The wrapper stops being a box so its two children become the regions above. */
+.lobby-stack { display: contents; }
+
+/* The split is the whole page: the title lives in the left column with
+   everything else it heads, and reads left rather than centred so the column has
+   an edge to line up on. */
+.lobby-head { text-align: left; }
+.lobby-sub { margin-left: 0; }
+
+.lobby-main {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 28px clamp(20px, 3vw, 44px);
+
+    /* Its own surface, like the rail beside it. There are three fixed
+       decorations behind the page - the grid floor, the horizon that is its top
+       edge, and the haze - and all three draw at a set height up the VIEWPORT,
+       so in a region that scrolls they sit across the content and stay put while
+       it moves. Hiding them one at a time was chasing them; .app paints above
+       all three, so a region that owns its background is done with them
+       whichever one it was, and whatever gets added later.
+       The gradient rather than flat black is what keeps it from reading as a
+       hole - the same trick the rail uses. */
+    background: linear-gradient(180deg, rgba(3, 11, 17, .97), rgba(0, 3, 6, .99));
+}
+
+/* Room to breathe without letting a line of prose run the whole width of a
+   large screen. */
+.lobby-main > * { width: 100%; max-width: 1080px; margin-inline: auto; }
+
+/* One column below the point where 30% stops being a usable width for a card
+   grid, with the player's own panel first - it is the thing they came to set. */
+@media (max-width: 900px) {
+    .view-lobby {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        overflow-y: auto;
+    }
+    .lobby-main, .lobby-side { overflow: visible; }
+    .lobby-side { order: -1; box-shadow: none; }
+    .lobby-side::before { display: none; }
+    .commander-card { flex: none; }
+}
+
+.lobby-head { text-align: center; }
+
+.lobby-title {
+    font-size: 28px;
+    font-weight: 300;
+    letter-spacing: .22em;
+    color: var(--text);
+    text-shadow: 0 0 30px var(--glow-soft);
+    margin-top: 14px;
+}
+
+.lobby-sub {
+    margin: 12px auto 0;
+    max-width: 56ch;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.7;
+}
+
+/* The line above states the rules; this one asks for an answer. It gets the
+   system's colour and a little more room so it reads as an invitation rather
+   than as a third clause. */
+.lobby-call {
+    margin-top: 10px;
+    font-size: 15px;
+    color: var(--cyan);
+    text-shadow: 0 0 18px var(--glow-soft);
+}
+
+/* ── Next launch ────────────────────────────────────────────────────────── */
+
+.launch-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 22px 26px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    clip-path: var(--cut);
+    box-shadow: 0 0 50px -14px var(--glow), 0 0 70px rgba(0, 0, 0, .8);
+    backdrop-filter: blur(8px);
+}
+
+.launch-main { min-width: 0; }
+
+.launch-kicker {
+    display: block;
+    font-size: 10px;
+    color: var(--cyan);
+    opacity: .75;
+}
+
+.launch-clock {
+    font-size: 30px;
+    line-height: 1.15;
+    color: var(--text);
+    text-shadow: 0 0 24px var(--glow-soft);
+    /* Tabular figures: a countdown that reflows every second because a 1 is
+       narrower than an 8 reads as broken, not as ticking. */
+    font-variant-numeric: tabular-nums;
+}
+
+.launch-note {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+/* Due is state, not a control, so it takes the other voice. */
+.launch-card.is-due .launch-clock { color: var(--amber); text-shadow: 0 0 26px var(--amber-glow); }
+.launch-card.is-due { border-color: rgba(255, 176, 58, .45); box-shadow: 0 0 50px -14px var(--amber-glow); }
+
+/* ── The list ───────────────────────────────────────────────────────────── */
+
+.lobby-toolbar { display: flex; justify-content: flex-end; }
+
+/* The extra room above is deliberate: the heading is the one thing in this
+   column not sitting on a panel, so it needs air of its own rather than
+   borrowing the gap from whatever is above it. */
+.lobby-section { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+
+/* A section heading sitting on its own rule. The gap is generous because the
+   heading is small, uppercase and widely tracked - at 11.5px with .18em of
+   letter-spacing it reads as a label, and a label crowded against a line reads
+   as underlined rather than as a heading with a rule beneath it. */
+.lobby-bar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+/* The horizon is fixed to the viewport - it is the top edge of the grid floor,
+   at bottom:58vh - while this heading is in flow. At some window heights the two
+   land on each other, and a 1px line across an 11.5px tracked-out label reads as
+   a strike through it. Spacing cannot fix that: move the heading and it collides
+   at a different window height instead, and moving the horizon moves the
+   vanishing point the whole floor recedes to.
+   So the label carries a patch of night behind it. A text-shadow was not enough -
+   it feathers out well before it reaches a line sitting above the cap height -
+   so this is a real occluder, sized to the text and fading to nothing at its
+   edges. .app is z-index 1 and the decorations are below it, so anything in here
+   paints over them. The line passes behind the words and comes out the far side. */
+.lobby-heading {
+    position: relative;
+    z-index: 0;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-weight: 500;
+    font-size: 11.5px;
+    color: var(--text);
+}
+
+.lobby-heading::before {
+    content: "";
+    position: absolute;
+    inset: -14px -22px;
+    z-index: -1;
+    background: radial-gradient(ellipse at center,
+        var(--void) 0 45%,
+        rgba(0, 3, 6, .82) 62%,
+        transparent 100%);
+}
+
+.lobby-count { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+
+.btn-sm { padding: 6px 13px; font-size: 11px; }
+
+.game-list { display: flex; flex-direction: column; gap: 10px; }
+
+.game-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+    padding: 14px 16px;
+    text-align: left;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    cursor: pointer;
+    transition: border-color .16s, box-shadow .16s, background .16s;
+}
+
+/* Same lit seam the side panels carry, so a card reads as the same kind of
+   object as everything else in the frame. */
+.game-card::before {
+    content: '';
+    position: absolute;
+    top: 9px; bottom: 0; left: 0;
+    width: 1px;
+    background: linear-gradient(180deg, var(--cyan), transparent 85%);
+    box-shadow: 0 0 10px var(--glow);
+    opacity: .55;
+}
+
+.game-card:hover:not(:disabled) {
+    border-color: var(--line-bright);
+    background: rgba(8, 22, 30, .78);
+    box-shadow: 0 0 30px -10px var(--glow);
+}
+.game-card:hover:not(:disabled)::before { opacity: 1; }
+
+/* Retired: the games_t row survives cleanup but its map and roster do not, so
+   there is genuinely nothing to open. Dimmed and inert rather than hidden —
+   the history is the point of keeping the row. */
+.game-card:disabled { cursor: not-allowed; opacity: .45; }
+.game-card:disabled::before { opacity: .2; }
+
+.game-title {
+    font-size: 13px;
+    color: var(--text);
+}
+
+/* Who took the sector, under its date. Not amber: a finished game is a fact on
+   the record, not something asking to be looked at. */
+.game-won {
+    display: block;
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.game-won b { font-weight: 400; color: var(--cyan); }
+
+.game-stats {
+    display: flex;
+    gap: 22px;
+}
+.game-stats span { display: flex; flex-direction: column; gap: 2px; }
+.game-stats em { font-style: normal; font-size: 9px; color: var(--text-faint); }
+.game-stats b {
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--cyan);
+    font-variant-numeric: tabular-nums;
+}
+
+.game-flag {
+    padding: 3px 9px;
+    font-size: 10px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+.game-flag.is-live   { color: var(--amber); border-color: rgba(255, 176, 58, .45); }
+.game-flag.is-won    { color: var(--cyan);  border-color: var(--line-bright); }
+
+/* The game being played now, given the weight to say so. Amber for the same
+   reason the LIVE flag takes it: a running game is state that wants attention,
+   and every other card on the page is history. */
+.game-card.is-current {
+    padding: 20px 18px;
+    border-color: rgba(255, 176, 58, .45);
+    box-shadow: 0 0 40px -14px var(--amber-glow);
+}
+.game-card.is-current::before {
+    background: linear-gradient(180deg, var(--amber), transparent 85%);
+    box-shadow: 0 0 10px var(--amber-glow);
+    opacity: 1;
+}
+.game-card.is-current:hover:not(:disabled) {
+    border-color: var(--amber);
+    box-shadow: 0 0 44px -10px var(--amber-glow);
+}
+.game-card.is-current .game-title { font-size: 15px; }
+.game-card.is-current .game-stats b { font-size: 15px; }
+
+.lobby-empty {
+    padding: 26px 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-faint);
+}
+
+/* ── Which sector is on screen ──────────────────────────────────────────── */
+
+.op-when { display: block; font-weight: 400; font-size: 14px; color: var(--text); }
+
+.op-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin: 12px 0 13px;
+}
+.op-stats span { display: flex; flex-direction: column; gap: 2px; }
+.op-stats em { font-style: normal; font-size: 9px; color: var(--text-faint); }
+.op-stats b {
+    font-weight: 400;
+    font-size: 14px;
+    color: var(--cyan);
+    font-variant-numeric: tabular-nums;
+}
+
+.op-win {
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--amber);
+    line-height: 1.5;
+}
+
+/* Amber, and the rule about amber holds: a window that is closing is state
+   demanding attention, not information to be read at leisure. It is on screen
+   for sixty seconds a game. */
+.op-grace {
+    margin-bottom: 12px;
+    padding-left: 9px;
+    border-left: 1px solid var(--amber);
+    font-size: 12px;
+    color: var(--amber);
+    line-height: 1.5;
+}
+.op-grace b {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.panel-op .chip.is-live { color: var(--amber); border-color: rgba(255, 176, 58, .45); }
+
+@media (max-width: 720px) {
+    .launch-card { flex-direction: column; align-items: flex-start; }
+    .launch-card .btn { width: 100%; }
+    .game-card { grid-template-columns: minmax(0, 1fr) auto; }
+    .game-stats { grid-column: 1 / -1; }
+}
+
+/* ── The permanent column ───────────────────────────────────────────────── */
+/* Seventy against thirty. The left is the games, which come and go; the right
+   is the player, who does not. */
+
+/* Its own region, floor to ceiling. The surface is what makes it one: opaque
+   enough that the grid floor and the horizon end at its edge instead of running
+   under the commander, which is what made it look like something laid on top of
+   the lobby rather than the other thirty per cent of the page. */
+.lobby-side {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 28px clamp(16px, 1.6vw, 24px);
+    background:
+        linear-gradient(180deg, rgba(4, 14, 21, .96), rgba(1, 6, 10, .98));
+    box-shadow: -26px 0 60px rgba(0, 0, 0, .55);
+}
+
+/* The seam. One lit edge is what tells you the region is in front. */
+.lobby-side::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, var(--cyan) 18%, var(--cyan) 82%, transparent);
+    box-shadow: 0 0 14px var(--glow);
+    opacity: .5;
+}
+
+/* Framed like the launch card rather than paneled like a sidebar widget. It is
+   the second most important thing on this page and it should carry that. */
+.commander-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 22px 20px 20px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    clip-path: var(--cut);
+    box-shadow: 0 0 50px -14px var(--glow), 0 0 70px rgba(0, 0, 0, .8);
+    backdrop-filter: blur(8px);
+}
+
+
+
+.field-name {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-faint);
+}
+
+.field-name input {
+    padding: 9px 11px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: .04em;
+    text-transform: none;
+    color: var(--text);
+    background: rgba(2, 10, 15, .82);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    outline: 0;
+    transition: border-color .16s, box-shadow .16s;
+}
+.field-name input:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 18px -6px var(--glow);
+}
+.field-name input::placeholder { color: var(--text-faint); opacity: .7; }
+
+/* ── What is fielded ────────────────────────────────────────────────────── */
+
+/* The portrait leads. In a 30% column a 64px thumbnail in a row reads as a
+   widget; a card at the width of the panel reads as the thing being chosen,
+   which is what it is.
+
+   Contained rather than cropped - these are portrait cards and squaring them
+   takes the head off - on a dark plate, so the letterboxing either side looks
+   deliberate. */
+.crew-portrait {
+    position: relative;
+    display: grid;
+    place-items: center;
+
+    /* Never shrink. The card is a column flex that fills the rail, and a flex
+       item shrinks by default - which squeezed the frame below the height its
+       ratio asks for and left the art letterboxed sideways inside it. The
+       picker below takes the slack instead.
+
+       Capped by width rather than height, so the ratio survives the cap: at
+       5/7, a frame this wide is exactly this tall.
+
+       The cap is what divides the panel between the card you have chosen and
+       the ones you are choosing from - the picker below takes everything this
+       does not. Dropping it from 46vh to 30vh is about a hundred and seventy
+       pixels handed over, which is most of another row of cards. */
+    flex: none;
+    width: 100%;
+    max-width: calc(30vh * 5 / 7);
+    margin-inline: auto;
+    /* The cards are 750x1050. Matching the frame to them exactly is what makes
+       the art fill it - at 3/4 it was contained correctly and still letterboxed,
+       because the box was the wrong shape. */
+    aspect-ratio: 5 / 7;
+
+    /* auto, not 0 - a plain `margin` shorthand here quietly undoes the
+       margin-inline above and leaves the frame hard against the left edge. */
+    margin: 0 auto 12px;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at 50% 35%, rgba(34, 224, 255, .10), transparent 70%),
+        var(--deck);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+}
+
+/* Positioned rather than sized. A percentage height has to resolve against a
+   definite one, and these boxes get theirs from aspect-ratio - which browsers
+   honour for layout but do not always offer back as a base for percentages.
+   Absolute against the frame is exact whatever the height came from. */
+.crew-portrait img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Sits under the image, so a card whose art will not load still says which card
+   it is instead of showing an empty frame. */
+.crew-portrait-empty {
+    position: absolute;
+    inset: auto 10px 12px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    font-size: 10px;
+    text-align: center;
+    color: var(--text-faint);
+}
+.crew-portrait:not(.is-empty) .crew-portrait-empty { display: none; }
+.crew-portrait.is-empty { border-style: dashed; }
+
+/* Lifetime score. Quiet, because it is a fact about the player rather than
+   something to act on - and it is the only thing the removed heading row was
+   carrying that anybody needed. */
+.crew-score {
+    margin: -8px 0 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+}
+.crew-score:empty { display: none; }
+
+.crew-ident {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.crew-ident b {
+    font-weight: 400;
+    font-size: 15px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* The multiplier is the number this whole panel exists to set, so it is sized
+   like one - the figure lit and large, the word after it reduced to a label.
+   Splitting them is what lets the figure carry weight without "score" shouting
+   alongside it. */
+.crew-boost {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    font-size: 9px;
+    color: var(--text-faint);
+}
+
+.crew-boost b {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 19px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    color: var(--cyan-hot);
+    text-shadow: 0 0 16px var(--glow), 0 0 5px var(--glow);
+}
+
+.crew-picker {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    margin-top: 14px;
+}
+
+.crew-pickhead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.crew-label {
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-faint);
+}
+.crew-count { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+
+/* One tile per TEMPLATE, not per asset - a wallet holding four hundred cards
+   holds about thirty different ones, and the boost is a property of the
+   template anyway. */
+.crew-grid {
+    display: grid;
+
+    /* Three, so each one is big enough to recognise. Packing eight into a
+       thirty-per-cent rail made thumbnails nobody could read. */
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+
+    /* start, NOT the default stretch. A tile's only child is an absolutely
+       positioned image, so it contributes no content height at all - the row
+       collapses to nothing, the tile stretches to that nothing, and its
+       aspect-ratio then pushes it past the row and over the one below. Sizing
+       from the item instead of from the row is what stops the overlap. */
+    align-items: start;
+
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.crew-tile {
+    position: relative;
+    display: block;
+
+    /* Height from padding, not from aspect-ratio. The columns are 1fr, so their
+       width is only known AFTER the rows are sized - and an aspect-ratio height
+       depends on that width, which is a circle the browser resolves by giving
+       the row nothing. Every tile then drew on top of the one above it.
+       A percentage padding resolves against the element's own width instead,
+       which is definite by then, so the box has a real height whatever the grid
+       is doing. 140% is 7/5, the art's ratio.
+       The image is absolutely positioned, so the zero content height costs
+       nothing. */
+    height: 0;
+    padding: 0 0 140%;
+    overflow: hidden;
+    background: var(--deck);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+    cursor: pointer;
+    transition: border-color .16s, box-shadow .16s;
+}
+/* Contained, like the portrait, now that the frame is the same shape as the
+   art - which means it fills exactly and nothing is cropped or letterboxed. */
+.crew-tile img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+.crew-tile:hover { border-color: var(--cyan); box-shadow: 0 0 16px -4px var(--glow); }
+
+.crew-tile.is-picked {
+    border-color: var(--cyan);
+    box-shadow: 0 0 20px -3px var(--glow), 0 0 0 1px var(--cyan) inset;
+}
+
+/* The multiplier, on the card. Top-left so it never collides with the count in
+   the opposite corner, and in the system colour because it is the number the
+   choice is actually about. */
+.crew-mult {
+    position: absolute;
+    left: 4px; top: 4px;
+    padding: 2px 6px;
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 13px;
+    letter-spacing: .02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--cyan-hot);
+    background: rgba(0, 3, 6, .9);
+    border: 1px solid rgba(34, 224, 255, .35);
+    box-shadow: 0 0 12px -2px var(--glow);
+    clip-path: var(--cut-sm);
+}
+
+/* The chosen one brighter still, so the picker says which is fielded from the
+   badge as well as from the border. */
+.crew-tile.is-picked .crew-mult {
+    border-color: var(--cyan);
+    box-shadow: 0 0 16px -1px var(--glow);
+}
+
+/* How many of that card the wallet holds. Only worth saying past one. */
+.crew-tile em {
+    position: absolute;
+    right: 3px; bottom: 3px;
+    padding: 1px 4px;
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 10px;
+    color: var(--text);
+    background: rgba(0, 3, 6, .82);
+}
+
+/* The "none" tile, which is a real choice and the default one. */
+/* Its label cannot be centred by the box, because the box has no content height
+   to centre in - the height is all bottom padding. Centred against the padding
+   box instead, the same way the count badge and the art are. */
+.crew-tile.is-none {
+    background: rgba(2, 10, 15, .6);
+    border-style: dashed;
+}
+.crew-tile.is-none::after {
+    content: "NONE";
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: var(--display);
+    font-size: 10px;
+    letter-spacing: .16em;
+    color: var(--text-faint);
+}
+
+.crew-hint {
+    margin-top: 10px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-faint);
+}
+.crew-hint.is-warn { color: var(--amber); }
+
+.commander-card .btn { width: 100%; margin-top: 18px; }
+
+@media (max-width: 900px) {
+    .crew-grid {
+        max-height: 46vh;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    }
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+/* Five regions scroll - both lobby columns, the picker, the map's side panel,
+   and the whole lobby once it stacks - and a stock grey bar in any of them is
+   the one piece of chrome on the page that was never designed. So: a track that
+   is a recess, and a thumb that is a lit rail in it, like every other control
+   here.
+
+   Two mechanisms, because there is no single one that works everywhere.
+   ::-webkit-scrollbar is the expressive one and is what Chrome and Safari use.
+   Firefox has only the two standard properties, which are coarser but honour a
+   colour.
+
+   They are not simply both set. Chrome supports the standard properties too as
+   of 121, and when they are present it uses THEM and ignores the pseudo-elements
+   entirely - so setting both would quietly throw away the better rendering on
+   the most common browser. The @supports test asks whether ::-webkit-scrollbar
+   is understood at all, which is false only in Firefox, so each engine is given
+   the one it does best. */
+
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--cyan-deep) rgba(2, 10, 15, .6);
+    }
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+/* A recess rather than a surface: a hairline down the inner edge is what reads
+   as a channel cut into the panel. */
+::-webkit-scrollbar-track {
+    background: rgba(2, 10, 15, .55);
+    box-shadow: inset 1px 0 0 var(--line-soft);
+}
+
+/* Square, because everything else here is machined - and inset from the gutter
+   with a transparent border rather than by making the bar narrower, so the
+   whole ten pixels stays grabbable while only six of them are lit. */
+::-webkit-scrollbar-thumb {
+    background: var(--cyan-deep);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--cyan);
+    background-clip: padding-box;
+    box-shadow: 0 0 10px -1px var(--glow);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--cyan-hot);
+    background-clip: padding-box;
+}
+
+/* Where two bars meet. Left as the track rather than the stock grey square. */
+::-webkit-scrollbar-corner { background: rgba(2, 10, 15, .55); }
+
+/* The picker's gutter is narrower than the panel scrollers, so it gets a
+   narrower bar - a ten pixel channel beside a fifty pixel card is a stripe. */
+.crew-grid::-webkit-scrollbar { width: 7px; }
+.crew-grid::-webkit-scrollbar-thumb { border-width: 1px; }
