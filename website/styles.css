@@ -1254,7 +1254,7 @@ button, input, select { font: inherit; color: inherit; }
 .game-card {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto 70px;
     align-items: center;
     gap: 20px;
     width: 100%;
@@ -1310,11 +1310,21 @@ button, input, select { font: inherit; color: inherit; }
 }
 .game-won b { font-weight: 400; color: var(--cyan); }
 
+/* Fixed columns, not auto. Every card is its own grid, so an auto column sizes
+   to that row's own content - and the second cell holds either 8:36 or
+   12:19:03. That is a 21px swing, and because the block is pinned to the right
+   it drags the whole thing sideways, leaving the labels down the list on a
+   visible zigzag rather than a line.
+   Wide enough for the largest case in either card: the RUNNING label, and an
+   eight character span at the 15px the current game is set in. */
 .game-stats {
-    display: flex;
-    gap: 22px;
+    display: grid;
+    grid-template-columns: 78px 72px;
+    gap: 0 22px;
 }
-.game-stats span { display: flex; flex-direction: column; gap: 2px; }
+.game-stats span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.game-stats em,
+.game-stats b { white-space: nowrap; }
 .game-stats em { font-style: normal; font-size: 9px; color: var(--text-faint); }
 .game-stats b {
     font-weight: 400;
@@ -1324,6 +1334,7 @@ button, input, select { font: inherit; color: inherit; }
 }
 
 .game-flag {
+    justify-self: end;
     padding: 3px 9px;
     font-size: 10px;
     font-family: var(--display);
@@ -1341,7 +1352,10 @@ button, input, select { font: inherit; color: inherit; }
    reason the LIVE flag takes it: a running game is state that wants attention,
    and every other card on the page is history. */
 .game-card.is-current {
-    padding: 20px 18px;
+    /* Taller than the rest, but not wider inset: the extra 2px each side put its
+       stats 2px off the line the list below keeps. The emphasis it wants is the
+       height, the amber and the larger figures, none of which needs the sides. */
+    padding: 20px 16px;
     border-color: rgba(255, 176, 58, .45);
     box-shadow: 0 0 40px -14px var(--amber-glow);
 }
