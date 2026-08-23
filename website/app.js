@@ -3537,6 +3537,12 @@ async function enterLobby() {
     lobbyScreen.hidden = false
     lobbyBtn.hidden = true
 
+    // Shut on every arrival, not just the first. It is a panel you open to
+    // change something and then have no further use for, so leaving it standing
+    // open from a previous visit would be the odd behaviour.
+    setCommanderOpen(false)
+    setBoardOpen(false)
+
     lobbyRefreshBtn.disabled = true
     launchClock.textContent = '—'
     launchNote.textContent = 'Reading schedule…'
@@ -3621,6 +3627,224 @@ lobbyRefreshBtn.addEventListener('click', async () => {
 
     lastGamesSig = gamesSignature(state.games)
     renderLobby()
+})
+
+// ── Leaderboard ───────────────────────────────────────────────────────────
+//
+// perm is contract-wide and permanent: one row per wallet, written the first
+// time they spawn, and the one thing cleanup never takes. So this is not a view
+// of the games listed in the lobby - it outlives all of them.
+//
+// The read is a single indexed one. perm_t declares by_score for exactly this,
+// and without it a leaderboard would mean pulling every row and sorting here,
+// which gets worse with every player who has ever spawned.
+
+const boardList = $('boardList')
+const boardCount = $('boardCount')
+const boardEmpty = $('boardEmpty')
+const boardNote = $('boardNote')
+const boardBtn = $('boardBtn')
+const boardRefreshBtn = $('boardRefreshBtn')
+
+// One request, and far more than the board will hold for a long time.
+const BOARD_ROWS = 100
+
+// index_position 2 is by_score. Secondary keys ascend, so the best score sits at
+// the END of that index - reverse is what turns it into the first row back,
+// rather than reading everything and sorting it here.
+async function fetchBoard() {
+    const data = await getPage({
+        table: 'perm', scope: CONTRACT,
+        index_position: 2, key_type: 'i64',
+        reverse: true, limit: BOARD_ROWS,
+    })
+
+    if (!data) return null
+    return { rows: data.rows ?? [], more: !!data.more }
+}
+
+// Equal scores share a place, and the next distinct score takes the place its
+// position earns - two players on 9,000 are both first and the next is third.
+// Numbering straight down the list would quietly break a tie the chain does not.
+function placesFor(rows) {
+    const places = []
+    let place = 0
+    let last = null
+
+    rows.forEach((row, i) => {
+        const score = Number(row.score)
+        if (score !== last) { place = i + 1; last = score }
+        places.push(place)
+    })
+
+    return places
+}
+
+// rank null means "not placed here" - the row below the list for a player who
+// did not make the page. Inventing a number for them would mean counting every
+// row above, which is the read this index exists to avoid.
+function boardRow(row, rank, isMe) {
+    const el = document.createElement('div')
+    el.className = 'board-row'
+    if (isMe) el.classList.add('is-you')
+    if (rank !== null && rank <= 3) el.classList.add('is-top')
+
+    const place = document.createElement('span')
+    place.className = 'board-rank'
+    place.textContent = rank === null ? '—' : String(rank)
+
+    const who = document.createElement('div')
+    who.className = 'board-who'
+
+    const ident = document.createElement('span')
+    ident.className = 'board-ident'
+
+    // Built rather than interpolated: a username is whatever a player typed at
+    // spawn, so it reaches this list from the chain as untrusted text and never
+    // goes near innerHTML.
+    //
+    // The contract caps a username length but never rejects an empty one, so a
+    // blank can reach here. Falling back to the wallet is right; printing the
+    // wallet UNDER it as well would just say the same thing twice.
+    const named = !!row.username
+    const name = document.createElement('b')
+    name.className = 'board-name'
+    name.textContent = row.username || row.wallet
+    ident.append(name)
+
+    if (isMe) {
+        const you = document.createElement('span')
+        you.className = 'board-you'
+        you.textContent = 'You'
+        ident.append(you)
+    }
+
+    // The wallet is the identity of record and the username only a label on
+    // it, so it is shown underneath - two players are free to pick the same
+    // call sign, and only one of them can hold a wallet.
+    const wallet = document.createElement('span')
+    wallet.className = 'board-wallet'
+    wallet.textContent = row.wallet
+
+    who.append(ident)
+    if (named) who.append(wallet)
+
+    // What their commander multiplies a win by. Blank at 1x rather than saying
+    // so: no NFT is not a penalty, and a column of 1x on most rows would read
+    // like one.
+    const boost = Number(row.score_boost) || DEFAULT_SCORE_BOOST
+    const mult = document.createElement('span')
+    mult.className = 'board-boost'
+    if (boost > 1) mult.textContent = boost + '×'
+
+    const score = document.createElement('span')
+    score.className = 'board-score'
+    score.textContent = Number(row.score).toLocaleString()
+
+    el.append(place, who, mult, score)
+    return el
+}
+
+function renderBoard(result) {
+    const rows = result.rows
+    const places = placesFor(rows)
+
+    const cards = rows.map((row, i) =>
+        boardRow(row, places[i], row.wallet === state.account))
+
+    // Their own standing, when the page did not reach far enough down to hold
+    // it. Nothing else on this screen tells them where they are.
+    const listed = rows.some((row) => row.wallet === state.account)
+    const outside = !listed && permRow ? boardRow(permRow, null, true) : null
+    if (outside) {
+        outside.classList.add('is-detached')
+        cards.push(outside)
+    }
+
+    boardList.replaceChildren(...cards)
+
+    boardCount.textContent = rows.length ? String(rows.length) : ''
+    boardEmpty.hidden = rows.length > 0
+
+    const notes = []
+    if (result.more) notes.push('The top ' + BOARD_ROWS + ' only.')
+    if (outside) notes.push('You are below them, and your own row is at the foot of the list.')
+
+    boardNote.textContent = notes.join(' ')
+    boardNote.hidden = notes.length === 0
+}
+
+// Which read is the current one. Opening the drawer starts one, so opening it,
+// shutting it and opening it again - or pressing Refresh twice - puts two in
+// flight, and the slower node is under no obligation to answer second.
+let boardRead = 0
+
+async function loadBoard() {
+    const mine = ++boardRead
+
+    const result = await fetchBoard()
+
+    // Overtaken. Something newer is already shown or already on its way, and
+    // painting this over it would put older standings on screen and leave them
+    // there.
+    if (mine !== boardRead) return
+
+    boardRefreshBtn.disabled = false
+
+    if (!result) {
+        boardList.replaceChildren()
+        showError('Could not read the leaderboard from ' + hostOf(CHAIN.url) + '. Try another endpoint.')
+        return
+    }
+
+    renderBoard(result)
+}
+
+// ── The drawer ────────────────────────────────────────────────────────────
+//
+// It lies over the lobby rather than replacing it, so opening it is not a
+// change of view: nothing else is hidden and there is nothing to come back to.
+
+const lobbyView = document.querySelector('.view-lobby')
+const boardClose = $('boardClose')
+
+let boardOpen = false
+
+function setBoardOpen(open) {
+    boardOpen = open
+
+    lobbyView.classList.toggle('is-board-open', open)
+    boardBtn.classList.toggle('is-on', open)
+    boardBtn.setAttribute('aria-expanded', String(open))
+
+    if (!open) return
+
+    // One at a time. Both lie over the same lobby and this one is the full
+    // width, so an open commander panel would be buried underneath it.
+    setCommanderOpen(false)
+
+    // Read on every open rather than once. It is a single indexed request, and
+    // a board that silently showed the standings from ten minutes ago would be
+    // worse than the request is expensive.
+    boardRefreshBtn.disabled = true
+    boardCount.textContent = ''
+    boardEmpty.hidden = true
+    boardNote.hidden = true
+
+    const waiting = document.createElement('p')
+    waiting.className = 'board-wait'
+    waiting.textContent = 'Reading the board…'
+    boardList.replaceChildren(waiting)
+
+    loadBoard()
+}
+
+boardBtn.addEventListener('click', () => { setBoardOpen(!boardOpen) })
+boardClose.addEventListener('click', () => { setBoardOpen(false) })
+
+boardRefreshBtn.addEventListener('click', () => {
+    boardRefreshBtn.disabled = true
+    loadBoard()
 })
 
 // ── Launching ─────────────────────────────────────────────────────────────
@@ -3807,6 +4031,14 @@ let boostTable = new Map()
 let crewTemplates = []
 let pickedAssetId = '0'
 let savingPerm = false
+
+// The panel is a drawer and starts shut, so its expensive half is not read
+// until somebody asks to see it. fetchCrew is up to six pages of the wallet's
+// assets and every tile it renders pulls an image from IPFS - all of it for a
+// panel nobody has opened. The perm row is still read eagerly: it is one request
+// and the deploy prefill inside a game depends on it.
+let commanderOpen = false
+let crewLoaded = false
 
 // ── Reading ───────────────────────────────────────────────────────────────
 
@@ -4038,10 +4270,14 @@ function prefillDeployName() {
 
 // ── Loading ───────────────────────────────────────────────────────────────
 
+// The half that is always worth reading: one row, and the name the deploy form
+// starts from.
 async function loadCommander() {
     if (!state.session) {
         permRow = null
         crewTemplates = []
+        boostTable = new Map()
+        crewLoaded = false
         pickedAssetId = '0'
         permName.value = ''
         crewHint.textContent = 'Connect a wallet to choose one.'
@@ -4050,8 +4286,10 @@ async function loadCommander() {
         return
     }
 
-    crewHint.textContent = 'Reading your wallet…'
-    crewHint.classList.remove('is-warn')
+    // A different wallet has a different shelf, so whatever was read for the
+    // last one is not an answer for this one.
+    crewLoaded = false
+    crewTemplates = []
 
     permRow = await fetchPerm(state.account)
 
@@ -4059,6 +4297,27 @@ async function loadCommander() {
     // - saving is what creates the row, and they pay for it either way.
     permName.value = permRow?.username ?? ''
     pickedAssetId = permRow ? String(permRow.commander_asset_id) : '0'
+
+    crewHint.textContent = 'Reading your wallet…'
+    crewHint.classList.remove('is-warn')
+
+    renderCommanderPanel()
+    prefillDeployName()
+
+    // Only if somebody is actually looking at it.
+    if (commanderOpen) loadCrew()
+}
+
+// The cards, read once per wallet and only once the drawer has been opened.
+async function loadCrew() {
+    if (crewLoaded || !state.session) return
+
+    // Set before the awaits, so a second open while this one is still running
+    // does not start it again.
+    crewLoaded = true
+
+    crewHint.textContent = 'Reading your wallet…'
+    crewHint.classList.remove('is-warn')
 
     // Before the cards, because folding them sorts by boost and every tile
     // shows one.
@@ -4068,6 +4327,9 @@ async function loadCommander() {
 
     if (!crew) {
         crewTemplates = []
+        // Left unloaded on purpose: opening the drawer again should be able to
+        // try the node once more rather than showing a stale failure for good.
+        crewLoaded = false
         crewHint.textContent = 'Could not read your NFTs just now. You can still set a name.'
         crewHint.classList.add('is-warn')
     } else {
@@ -4091,6 +4353,39 @@ async function loadCommander() {
     renderCommanderPanel()
     prefillDeployName()
 }
+
+// ── The drawer ────────────────────────────────────────────────────────────
+
+const commanderToggle = $('commanderToggle')
+const commanderClose = $('commanderClose')
+
+function setCommanderOpen(open) {
+    commanderOpen = open
+
+    lobbyView.classList.toggle('is-commander-open', open)
+    commanderToggle.classList.toggle('is-on', open)
+    commanderToggle.setAttribute('aria-expanded', String(open))
+
+    if (!open) return
+
+    // One at a time, the same way round as the board does it.
+    setBoardOpen(false)
+
+    // First open is what pays for the cards.
+    loadCrew()
+}
+
+commanderToggle.addEventListener('click', () => { setCommanderOpen(!commanderOpen) })
+commanderClose.addEventListener('click', () => { setCommanderOpen(false) })
+
+// Escape shuts it, which is what a panel lying over the page is expected to do.
+// Not while a field inside it has focus and something typed in it - that key
+// belongs to the input first.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return
+    if (boardOpen) setBoardOpen(false)
+    if (commanderOpen) setCommanderOpen(false)
+})
 
 permName.addEventListener('input', renderCommanderPanel)
 

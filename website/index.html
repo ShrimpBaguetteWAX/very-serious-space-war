@@ -172,6 +172,14 @@
                     </div>
 
                     <div class="lobby-toolbar">
+                        <button class="btn btn-ghost btn-sm" id="commanderToggle"
+                                aria-expanded="false" aria-controls="commanderPanel">
+                            <span class="btn-label">Commander</span>
+                        </button>
+                        <button class="btn btn-ghost btn-sm" id="boardBtn"
+                                aria-expanded="false" aria-controls="boardScreen">
+                            <span class="btn-label">Leaderboard</span>
+                        </button>
                         <button class="btn btn-ghost btn-sm" id="lobbyRefreshBtn">
                             <span class="btn-label">Refresh</span>
                         </button>
@@ -206,12 +214,17 @@
 
                 </div>
 
-                <!-- The 30% column, and a character sheet rather than a sidebar. The
+                <!-- The commander drawer, and a character sheet rather than a sidebar. The
                      portrait leads because the commander IS the thing being set; the
                      name and the picker are how you change it. All of it is permanent -
                      it belongs to the player rather than to a game, and it is the one
                      thing cleanup never takes. -->
-                <aside class="lobby-side">
+                <aside class="lobby-side" id="commanderPanel" aria-label="Commander">
+                    <div class="drawer-head">
+                        <button class="drawer-close" id="commanderClose"
+                                title="Hide" aria-label="Hide the commander panel">&times;</button>
+                    </div>
+
                     <div class="commander-card">
                         <span class="frame-corner tl" aria-hidden="true"></span>
                         <span class="frame-corner tr" aria-hidden="true"></span>
@@ -255,6 +268,53 @@
                     </div>
                 </aside>
               </div>
+
+              <!-- The leaderboard, over the lobby rather than instead of it. perm is
+                   contract-wide and permanent, so it is not about the games underneath
+                   - but it is opened from here and dismissed back to here, which is
+                   what the commander panel beside it does. That one comes in from its
+                   own edge; this one is the full width, so it comes down from the top. -->
+              <section class="board-drawer" id="boardScreen" aria-label="Leaderboard">
+                  <!-- Fixed to the top of the drawer rather than scrolling away with
+                       the standings. It covers the whole page now, so the way out has
+                       to be in front of you the entire time you are reading, not
+                       somewhere back up at the top of a hundred rows. -->
+                  <div class="drawer-bar">
+                      <button class="btn btn-ghost" id="boardClose">
+                          <span class="btn-label">&larr; Back to lobby</span>
+                      </button>
+                      <button class="btn btn-ghost" id="boardRefreshBtn">
+                          <span class="btn-label">Refresh</span>
+                      </button>
+                  </div>
+
+                  <div class="board-main">
+                      <header class="lobby-head">
+                          <span class="hero-rule" aria-hidden="true"></span>
+                          <h1 class="lobby-title">Leaderboard</h1>
+                          <p class="lobby-sub">
+                              Lifetime score, kept per wallet rather than per sector. Taking a
+                              whole sector pays 1,000 points times your commander&rsquo;s
+                              multiplier, and nothing ever takes them back.
+                          </p>
+                      </header>
+
+                      <section class="lobby-section">
+                          <div class="lobby-bar">
+                              <h2 class="lobby-heading">Standings</h2>
+                              <span class="lobby-count" id="boardCount"></span>
+                          </div>
+                          <div class="board-list" id="boardList"></div>
+                      </section>
+
+                      <p class="lobby-empty" id="boardEmpty" hidden>
+                          Nobody is on the board yet. It fills the first time a sector is
+                          taken outright.
+                      </p>
+
+                      <p class="board-note" id="boardNote" hidden></p>
+                  </div>
+              </section>
             </section>
 
             <!-- Map -->

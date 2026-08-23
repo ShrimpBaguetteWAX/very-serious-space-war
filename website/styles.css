@@ -1061,18 +1061,20 @@ button, input, select { font: inherit; color: inherit; }
    per cent is not a sidebar sitting on the lobby - it is its own surface, opaque
    enough that the grid floor and the horizon stop at its edge. */
 .view-lobby {
+    /* One column, and the commander panel laid over it. It used to be a 70/30
+       split; the panel is a drawer now and starts closed, so the games get the
+       whole measure until it is asked for. Positioned because the drawer takes
+       its bounds from here. */
+    position: relative;
     display: grid;
-    grid-template-columns: 70% 30%;
+    grid-template-columns: minmax(0, 1fr);
     height: 100%;
     min-height: 0;
     padding: 0;
     overflow: hidden;
 }
 
-/* Seventy against thirty: the games on the left, which come and go, and the
-   player on the right, who does not. Wider than the old single column so the
-   left keeps the measure it had. */
-/* The wrapper stops being a box so its two children become the regions above. */
+/* The wrapper stops being a box so its children become the regions above. */
 .lobby-stack { display: contents; }
 
 /* The split is the whole page: the title lives in the left column with
@@ -1105,17 +1107,11 @@ button, input, select { font: inherit; color: inherit; }
    large screen. */
 .lobby-main > * { width: 100%; max-width: 1080px; margin-inline: auto; }
 
-/* One column below the point where 30% stops being a usable width for a card
-   grid, with the player's own panel first - it is the thing they came to set. */
+/* Below the point where a third of the width stops being usable for a card
+   grid, the drawer takes what it needs instead. It is over the games rather
+   than beside them, so there is nothing to reflow - which is why this no longer
+   has to stack the two into rows the way the fixed split did. */
 @media (max-width: 900px) {
-    .view-lobby {
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: auto auto;
-        overflow-y: auto;
-    }
-    .lobby-main, .lobby-side { overflow: visible; }
-    .lobby-side { order: -1; box-shadow: none; }
-    .lobby-side::before { display: none; }
     .commander-card { flex: none; }
 }
 
@@ -1195,7 +1191,8 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ── The list ───────────────────────────────────────────────────────────── */
 
-.lobby-toolbar { display: flex; justify-content: flex-end; }
+/* Held a single button until the leaderboard gave it a second one. */
+.lobby-toolbar { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* The extra room above is deliberate: the heading is the one thing in this
    column not sitting on a panel, so it needs air of its own rather than
@@ -1428,18 +1425,87 @@ button, input, select { font: inherit; color: inherit; }
    under the commander, which is what made it look like something laid on top of
    the lobby rather than the other thirty per cent of the page. */
 .lobby-side {
-    position: relative;
+    /* Out of flow: it lies over the games rather than taking a column from
+       them, so opening and closing it slides one element instead of reflowing
+       the whole list behind it. */
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    z-index: 3;
+    width: min(34%, 460px);
+
     display: flex;
     flex-direction: column;
     gap: 10px;
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 28px clamp(16px, 1.6vw, 24px);
+    padding: 22px clamp(16px, 1.6vw, 24px) 28px;
     background:
         linear-gradient(180deg, rgba(4, 14, 21, .96), rgba(1, 6, 10, .98));
     box-shadow: -26px 0 60px rgba(0, 0, 0, .55);
+
+    /* Closed, which is how it starts. visibility rather than transform alone:
+       a panel that is only pushed off screen still takes tab focus, so it would
+       be reachable while invisible. The delay holds it visible for the length
+       of the slide out, then drops it. */
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s linear .3s;
 }
+
+.view-lobby.is-commander-open .lobby-side {
+    transform: none;
+    visibility: visible;
+    transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lobby-side,
+    .view-lobby.is-commander-open .lobby-side { transition: none; }
+}
+
+/* Below the point where a third of the width stops being a usable panel, it
+   takes the screen instead. This has to sit AFTER the rule above rather than
+   with the rest of the lobby breakpoints: same selector, same specificity, so
+   order is the only thing that decides it. */
+@media (max-width: 900px) {
+    .lobby-side { width: min(100%, 420px); }
+}
+
+/* Just the way out. No heading: the panel is unmistakably the commander, and it
+   was already decided that saying so twice was one time too many. */
+.drawer-head { display: flex; justify-content: flex-end; flex: none; }
+
+.drawer-close {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    font-family: var(--display);
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--line-soft);
+    cursor: pointer;
+    transition: color .16s, border-color .16s, box-shadow .16s;
+}
+
+.drawer-close:hover {
+    color: var(--cyan);
+    border-color: var(--line-bright);
+    box-shadow: 0 0 18px -6px var(--glow);
+}
+
+/* A ghost button that is currently holding something open. Without this the
+   toolbar gives no sign which of the three is the one in effect. */
+.btn.is-on {
+    color: var(--cyan);
+    border-color: var(--line-bright);
+    box-shadow: 0 0 22px -8px var(--glow);
+}
+
 
 /* The seam. One lit edge is what tells you the region is in front. */
 .lobby-side::before {
@@ -1504,7 +1570,7 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ── What is fielded ────────────────────────────────────────────────────── */
 
-/* The portrait leads. In a 30% column a 64px thumbnail in a row reads as a
+/* The portrait leads. In a column this narrow a 64px thumbnail in a row reads as a
    widget; a card at the width of the panel reads as the thing being chosen,
    which is what it is.
 
@@ -1792,6 +1858,199 @@ button, input, select { font: inherit; color: inherit; }
         max-height: 46vh;
         grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     }
+}
+
+/* ── Leaderboard ────────────────────────────────────────────────────────── */
+/* A view of its own rather than a panel in the lobby. perm is contract-wide and
+   permanent, so it is not about the games listed there, and a hundred rows want
+   a full measure rather than a 70% column. */
+.board-drawer {
+    /* The whole lobby, not a slice of it. The commander panel comes in from the
+       right because it is a narrow column; this one takes the page, so it comes
+       down from the top and covers what it lands on. */
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    background: linear-gradient(180deg, rgba(4, 14, 21, .98), rgba(1, 6, 10, .99));
+    box-shadow: 0 26px 60px rgba(0, 0, 0, .55);
+
+    /* Shut, which is how it starts. visibility for the same reason the
+       commander panel carries it - a panel merely pushed off screen still takes
+       tab focus. */
+    transform: translateY(-100%);
+    visibility: hidden;
+    transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s linear .3s;
+}
+
+.view-lobby.is-board-open .board-drawer {
+    transform: none;
+    visibility: visible;
+    transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .board-drawer,
+    .view-lobby.is-board-open .board-drawer { transition: none; }
+}
+
+/* Outside the scrolling region rather than inside it, so the way out holds its
+   place however far down the standings you are. */
+.drawer-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px clamp(20px, 3vw, 44px);
+    background: rgba(2, 9, 14, .55);
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.board-main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    min-width: 0;
+    padding: 22px clamp(20px, 3vw, 44px) 34px;
+}
+
+/* Narrower than the lobby's 1080. A leaderboard is four short columns and
+   stretching them across a wide screen puts the score a long way from the name
+   it belongs to. */
+.board-main > * { width: 100%; max-width: 820px; margin-inline: auto; }
+
+.board-drawer .lobby-title { font-size: 24px; margin-top: 10px; }
+.board-drawer .lobby-sub { margin-top: 10px; font-size: 12.5px; }
+
+.board-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* Fixed outer columns rather than auto, so the places line up down the left and
+   the scores down the right. Each row is its own grid - auto would size to its
+   own content and stagger. */
+.board-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) 56px 110px;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    clip-path: var(--cut-sm);
+}
+
+/* The same lit seam the game cards carry, so a row reads as the same kind of
+   object as everything else in the frame. */
+.board-row::before {
+    content: '';
+    position: absolute;
+    top: 9px; bottom: 0; left: 0;
+    width: 1px;
+    background: linear-gradient(180deg, var(--cyan), transparent 85%);
+    box-shadow: 0 0 10px var(--glow);
+    opacity: .55;
+}
+
+.board-rank {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--text-faint);
+    text-align: center;
+}
+
+/* The first three, and nothing below them. A podium that shades off gradually
+   stops being a podium. */
+.board-row.is-top .board-rank {
+    color: var(--cyan);
+    text-shadow: 0 0 14px var(--glow);
+}
+
+.board-who { min-width: 0; }
+
+.board-ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+
+.board-name {
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-wallet {
+    display: block;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+/* Amber, because it is the only thing on the row asking to be noticed, and it
+   is blank at 1x - a column of 1x on most rows would read as a penalty. */
+.board-boost {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    text-align: right;
+}
+
+.board-score {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--cyan);
+    text-align: right;
+}
+
+/* Your own row, wherever it falls. */
+.board-row.is-you {
+    border-color: var(--line-bright);
+    background: rgba(8, 22, 30, .82);
+}
+.board-row.is-you::before { opacity: 1; }
+
+.board-you {
+    flex: none;
+    padding: 2px 7px;
+    font-family: var(--display);
+    font-size: 9.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: var(--cyan);
+}
+
+/* Their row when the page did not reach far enough down to hold it: set apart
+   from the places above rather than pretending to be the next one. */
+.board-row.is-detached { margin-top: 14px; border-style: dashed; }
+
+.board-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.7;
+}
+
+.board-wait {
+    padding: 18px 2px;
+    font-size: 12.5px;
+    color: var(--text-faint);
+}
+
+/* The boost column is the first thing worth losing when there is no room for
+   four - the multiplier is on the commander card in the lobby either way. */
+@media (max-width: 560px) {
+    .board-row { grid-template-columns: 34px minmax(0, 1fr) 92px; gap: 10px; }
+    .board-boost { display: none; }
 }
 
 /* ── Scrollbars ─────────────────────────────────────────────────────────── */
