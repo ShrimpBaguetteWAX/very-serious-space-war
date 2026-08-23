@@ -137,6 +137,11 @@
               that reason rather than as a menu for its own sake.
             -->
             <section class="view view-lobby" id="lobbyScreen" hidden>
+              <!-- The backdrop. It owns the opaque surface the lobby used to carry on
+                   .lobby-main, so the three fixed decorations are still occluded, and
+                   it draws the drift on top of it. -->
+              <canvas class="lobby-fx" id="lobbyFx" aria-hidden="true"></canvas>
+
               <div class="lobby-stack">
                 <div class="lobby-main">
                     <header class="lobby-head">

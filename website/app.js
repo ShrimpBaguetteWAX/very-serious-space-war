@@ -1800,6 +1800,7 @@ async function disconnect() {
     mapScreen.hidden = true
     lobbyScreen.hidden = true
     loginScreen.hidden = false
+    stopLobbyFx()
     setStatus('Ready')
 }
 
@@ -3054,6 +3055,195 @@ function flashAt(i) {
     return 1 - t / FLASH_MS
 }
 
+// ── The lobby's drift ─────────────────────────────────────────────────────
+//
+// The same shape the map draws when somebody takes ground: a front spreading
+// out from one cell, four-neighbour, each cell lighting as the front passes and
+// dimming behind it. Here it is nobody's territory and nothing is at stake - it
+// is the lobby wearing the game's own language while you wait for a sector.
+//
+// Kept cheap deliberately. It runs at 30fps rather than 60, only while the
+// lobby is the thing on screen and the tab is not in the background, and it
+// draws in five alpha buckets rather than per cell - a few hundred lit cells is
+// five state changes a frame, not a few hundred.
+
+const fxCanvas = $('lobbyFx')
+const fxCtx = fxCanvas.getContext('2d')
+
+const FX_CELL = 34            // the lattice pitch, matching the CSS
+const FX_FRAME_MS = 33        // 30fps
+const FX_DECAY = 0.94         // per frame, so a trail lasts about a second
+const FX_STEP_MS = 52         // how long the front takes to cross one cell
+const FX_MIN = 0.03           // below this a cell is not worth a rectangle
+const FX_BUCKETS = 5
+const FX_PEAK = 0.085         // the brightest a cell ever gets. Muted is the point
+const FX_MAX_FRONTS = 3
+const FX_GAP_MS = [1200, 4200]
+
+let fxW = 0, fxH = 0
+let fxCols = 0, fxRows = 0
+let fxHeat = null
+let fxFronts = []
+let fxRaf = 0
+let fxLast = 0
+let fxNextSpawn = 0
+
+// Reused rather than rebuilt, so a frame allocates nothing.
+const fxBuckets = Array.from({ length: FX_BUCKETS }, () => [])
+
+const fxStill = matchMedia('(prefers-reduced-motion: reduce)')
+
+function sizeFx() {
+    const r = fxCanvas.getBoundingClientRect()
+    if (!r.width || !r.height) return false
+
+    // Capped at 2: past that it is paying for pixels nobody can see in
+    // something this dim.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+
+    fxW = r.width
+    fxH = r.height
+    fxCanvas.width = Math.round(fxW * dpr)
+    fxCanvas.height = Math.round(fxH * dpr)
+    fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    fxCols = Math.ceil(fxW / FX_CELL)
+    fxRows = Math.ceil(fxH / FX_CELL)
+    fxHeat = new Float32Array(fxCols * fxRows)
+    fxFronts = []
+
+    return true
+}
+
+function fxLight(x, y) {
+    if (x < 0 || y < 0 || x >= fxCols || y >= fxRows) return
+    fxHeat[y * fxCols + x] = 1
+}
+
+// One ring of the flood, at manhattan distance d - the same four-neighbour
+// walk the capture replay takes, which is why the two read alike.
+function fxRing(f, d) {
+    if (d === 0) { fxLight(f.cx, f.cy); return }
+
+    for (let k = 0; k <= d; k++) {
+        const j = d - k
+        fxLight(f.cx + k, f.cy + j)
+        fxLight(f.cx - k, f.cy - j)
+        fxLight(f.cx + j, f.cy - k)
+        fxLight(f.cx - j, f.cy + k)
+    }
+}
+
+function fxSpawn(now) {
+    if (fxFronts.length >= FX_MAX_FRONTS) return
+
+    fxFronts.push({
+        cx: Math.floor(Math.random() * fxCols),
+        cy: Math.floor(Math.random() * fxRows),
+        step: 0,
+        max: 5 + Math.floor(Math.random() * 11),
+        next: now,
+    })
+}
+
+function fxDraw() {
+    fxCtx.clearRect(0, 0, fxW, fxH)
+
+    for (const b of fxBuckets) b.length = 0
+
+    for (let i = 0; i < fxHeat.length; i++) {
+        const h = fxHeat[i]
+        if (h < FX_MIN) continue
+
+        const b = Math.min(FX_BUCKETS - 1, (h * FX_BUCKETS) | 0)
+        fxBuckets[b].push((i % fxCols) * FX_CELL, ((i / fxCols) | 0) * FX_CELL)
+    }
+
+    fxCtx.fillStyle = MAT.ink || '#22e0ff'
+
+    for (let b = 0; b < FX_BUCKETS; b++) {
+        const cells = fxBuckets[b]
+        if (!cells.length) continue
+
+        fxCtx.globalAlpha = FX_PEAK * ((b + 1) / FX_BUCKETS)
+        for (let k = 0; k < cells.length; k += 2) {
+            fxCtx.fillRect(cells[k] + 1, cells[k + 1] + 1, FX_CELL - 2, FX_CELL - 2)
+        }
+    }
+
+    fxCtx.globalAlpha = 1
+}
+
+function fxFrame(now) {
+    fxRaf = requestAnimationFrame(fxFrame)
+
+    if (now - fxLast < FX_FRAME_MS) return
+    fxLast = now
+
+    for (let i = 0; i < fxHeat.length; i++) {
+        const h = fxHeat[i]
+        if (h) fxHeat[i] = h < FX_MIN ? 0 : h * FX_DECAY
+    }
+
+    if (now >= fxNextSpawn) {
+        fxSpawn(now)
+        fxNextSpawn = now + FX_GAP_MS[0] + Math.random() * (FX_GAP_MS[1] - FX_GAP_MS[0])
+    }
+
+    for (let i = fxFronts.length - 1; i >= 0; i--) {
+        const f = fxFronts[i]
+
+        // Catch up rather than draw one ring a frame: at 30fps and 52ms a step
+        // they are close, but a frame the browser skipped should not slow the
+        // front down.
+        while (f.next <= now && f.step <= f.max) {
+            fxRing(f, f.step)
+            f.step++
+            f.next += FX_STEP_MS
+        }
+
+        if (f.step > f.max) fxFronts.splice(i, 1)
+    }
+
+    fxDraw()
+}
+
+function startLobbyFx() {
+    // Nothing moving for anyone who asked for that. The lattice and the surface
+    // are CSS, so the lobby still looks like itself.
+    if (fxStill.matches) return
+    if (fxRaf) return
+    if (!sizeFx()) return
+
+    fxLast = 0
+    fxNextSpawn = 0
+    fxRaf = requestAnimationFrame(fxFrame)
+}
+
+function stopLobbyFx() {
+    if (!fxRaf) return
+
+    cancelAnimationFrame(fxRaf)
+    fxRaf = 0
+
+    // Left clear rather than frozen mid-front, so coming back to the lobby
+    // starts over instead of resuming something a minute stale.
+    if (fxHeat) fxHeat.fill(0)
+    fxCtx.clearRect(0, 0, fxW, fxH)
+}
+
+// Nobody is looking at a backgrounded tab, and a lobby left open in one should
+// not be asking for frames.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') stopLobbyFx()
+    else if (!lobbyScreen.hidden) startLobbyFx()
+})
+
+window.addEventListener('resize', () => {
+    if (!fxRaf) return
+    sizeFx()
+})
+
 // ── The lobby ─────────────────────────────────────────────────────────────
 //
 // A game is a scope on chain. Its map and its roster live under the game's
@@ -3543,6 +3733,8 @@ async function enterLobby() {
     setCommanderOpen(false)
     setBoardOpen(false)
 
+    startLobbyFx()
+
     lobbyRefreshBtn.disabled = true
     launchClock.textContent = '—'
     launchNote.textContent = 'Reading schedule…'
@@ -3579,6 +3771,8 @@ async function enterGame(row) {
     loginScreen.hidden = true
     mapScreen.hidden = false
     lobbyBtn.hidden = false
+
+    stopLobbyFx()
 
     renderOp()
 

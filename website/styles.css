@@ -1083,6 +1083,32 @@ button, input, select { font: inherit; color: inherit; }
 .lobby-head { text-align: left; }
 .lobby-sub { margin-left: 0; }
 
+/* The lobby's backdrop, and the surface under it.
+   .lobby-main used to carry this gradient itself, because three decorations are
+   fixed to the viewport - the grid floor, the horizon and the haze - and a
+   region that scrolls needs to own its background or they sit across it and
+   stay put while it moves. That job moves here: this covers the same area, is
+   just as opaque, and gives the drift somewhere to be drawn that is not on top
+   of the reading.
+   The lattice is CSS rather than canvas work, so the field reads as ground even
+   when nothing is happening on it, and costs nothing per frame. It is pitched
+   at the same 34px the script steps in. */
+.lobby-fx {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: block;
+
+    /* A canvas is a replaced element: inset alone leaves it at its intrinsic
+       300x150 rather than stretching it. */
+    width: 100%;
+    height: 100%;
+    background:
+        repeating-linear-gradient(0deg,  rgba(34, 224, 255, .028) 0 1px, transparent 1px 34px),
+        repeating-linear-gradient(90deg, rgba(34, 224, 255, .028) 0 1px, transparent 1px 34px),
+        linear-gradient(180deg, rgba(3, 11, 17, .97), rgba(0, 3, 6, .99));
+}
+
 .lobby-main {
     display: flex;
     flex-direction: column;
@@ -1091,16 +1117,9 @@ button, input, select { font: inherit; color: inherit; }
     overflow-y: auto;
     padding: 28px clamp(20px, 3vw, 44px);
 
-    /* Its own surface, like the rail beside it. There are three fixed
-       decorations behind the page - the grid floor, the horizon that is its top
-       edge, and the haze - and all three draw at a set height up the VIEWPORT,
-       so in a region that scrolls they sit across the content and stay put while
-       it moves. Hiding them one at a time was chasing them; .app paints above
-       all three, so a region that owns its background is done with them
-       whichever one it was, and whatever gets added later.
-       The gradient rather than flat black is what keeps it from reading as a
-       hole - the same trick the rail uses. */
-    background: linear-gradient(180deg, rgba(3, 11, 17, .97), rgba(0, 3, 6, .99));
+    /* Above the backdrop, and transparent so it shows through. */
+    position: relative;
+    z-index: 1;
 }
 
 /* Room to breathe without letting a line of prose run the whole width of a
