@@ -3137,7 +3137,7 @@ const FX_MIN = 0.03           // below this a cell is not worth a rectangle
 const FX_BUCKETS = 7
 const FX_PEAK = 0.055         // the brightest a cell ever gets. Muted is the point
 const FX_MAX_FRONTS = 2
-const FX_GAP_MS = [5000, 11000]
+const FX_GAP_MS = [2000, 4800]
 
 let fxW = 0, fxH = 0
 let fxCols = 0, fxRows = 0
