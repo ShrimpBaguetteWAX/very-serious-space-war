@@ -146,6 +146,12 @@ button, input, select { font: inherit; color: inherit; }
     align-items: center;
     justify-content: space-between;
     gap: 20px;
+
+    /* The wallet menu hangs down out of this bar and over the stage, whose own
+       drawers are stacked at 4. Without a context of its own up here the menu
+       would open behind them. */
+    position: relative;
+    z-index: 10;
     padding: 15px 24px;
     background: linear-gradient(180deg, rgba(2, 10, 15, .92), rgba(1, 6, 10, .72));
     border-bottom: 1px solid var(--line);
@@ -271,6 +277,72 @@ button, input, select { font: inherit; color: inherit; }
 }
 .btn-ghost.is-connected:hover { color: var(--amber); border-color: var(--amber); }
 .btn-ghost .btn-label { text-transform: none; letter-spacing: .04em; font-size: 12.5px; }
+
+/* ── The wallet menu ────────────────────────────────────────────────────── */
+/* Signing out was one click on the button that tells you who you are, which is
+   a control people press to READ something. It opens this instead, and leaving
+   is a second, deliberate choice inside it. */
+.wallet { position: relative; }
+
+.wallet-menu {
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    z-index: 1;
+    min-width: 196px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line);
+    clip-path: var(--cut-sm);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .6), 0 0 40px -18px var(--glow);
+}
+
+.wallet-who {
+    padding: 11px 13px 12px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.wallet-kicker {
+    display: block;
+    font-family: var(--display);
+    font-size: 9px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.wallet-who b {
+    display: block;
+    margin-top: 5px;
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 12.5px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Amber only once you are on it: leaving is worth marking, but a menu with a
+   permanently lit item in it reads as a warning rather than a choice. */
+.wallet-item {
+    display: block;
+    width: 100%;
+    padding: 11px 13px;
+    text-align: left;
+    font-family: var(--display);
+    font-size: 10.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: color .16s, background .16s;
+}
+
+.wallet-item:hover {
+    color: var(--amber);
+    background: rgba(255, 176, 58, .07);
+}
 
 /* ── Stage / views ──────────────────────────────────────────────────────── */
 

@@ -1731,9 +1731,48 @@ document.addEventListener('visibilitychange', () => {
 
 waxCloudBtn.addEventListener('click', () => connect('cloudwallet'))
 anchorBtn.addEventListener('click', () => connect('anchor'))
+const walletWrap = $('wallet')
+const walletMenu = $('walletMenu')
+const walletWho = $('walletWho')
+const logoutBtn = $('logoutBtn')
+
+// Connected, this button is how you check who you are - and it was also how you
+// stopped being them. One misplaced click and the session was gone, on a control
+// people press to READ something. So it opens a menu instead, and leaving is a
+// deliberate second choice inside it.
+function setWalletMenuOpen(open) {
+    walletMenu.hidden = !open
+    connectWalletBtn.setAttribute('aria-expanded', String(open))
+}
+
 connectWalletBtn.addEventListener('click', () => {
-    if (state.session) disconnect()
-    else if (mapScreen.hidden) connect()
+    if (state.session) {
+        setWalletMenuOpen(walletMenu.hidden)
+        return
+    }
+
+    // No session: the button is a connect button again, and there is nothing to
+    // put in a menu.
+    setWalletMenuOpen(false)
+    if (mapScreen.hidden) connect()
+})
+
+logoutBtn.addEventListener('click', () => {
+    setWalletMenuOpen(false)
+    disconnect()
+})
+
+// Anywhere else shuts it, which is what an open menu is expected to do. Checked
+// against the wrapper rather than the button, or the click that lands on the
+// menu itself would close it before the item could act.
+document.addEventListener('click', (e) => {
+    if (walletMenu.hidden) return
+    if (walletWrap.contains(e.target)) return
+    setWalletMenuOpen(false)
+})
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setWalletMenuOpen(false)
 })
 
 function setWalletButtons(busy) {
@@ -1822,9 +1861,18 @@ function setConnectedChrome(connected) {
     const label = connectWalletBtn.querySelector('.btn-label')
     connectWalletBtn.classList.toggle('is-connected', connected)
     label.textContent = connected ? state.account : 'Connect Wallet'
+
+    // No longer promising to disconnect: it opens a menu, and the menu is where
+    // that lives.
     connectWalletBtn.title = connected
-        ? `Connected as ${state.account} — click to disconnect`
+        ? `Signed in as ${state.account}`
         : 'Connect a WAX wallet'
+
+    walletWho.textContent = connected ? state.account : ''
+
+    // A menu left standing open across a change of session would be offering to
+    // sign out of one that has already gone.
+    setWalletMenuOpen(false)
 }
 
 // enterMap used to open the chart straight from a wallet connect. It cannot any

@@ -62,9 +62,25 @@
                 <button class="btn btn-ghost" id="lobbyBtn" title="Back to the lobby" hidden>
                     <span class="btn-label">Lobby</span>
                 </button>
-                <button class="btn btn-ghost" id="connectWalletBtn">
-                    <span class="btn-label">Connect Wallet</span>
-                </button>
+                <!-- Signing out used to be one click on your own name, which is a
+                     thing you click to see who you are. It is behind a menu now: the
+                     button says who you are, the menu is where leaving lives. -->
+                <div class="wallet" id="wallet">
+                    <button class="btn btn-ghost" id="connectWalletBtn"
+                            aria-haspopup="menu" aria-expanded="false">
+                        <span class="btn-label">Connect Wallet</span>
+                    </button>
+
+                    <div class="wallet-menu" id="walletMenu" role="menu" hidden>
+                        <div class="wallet-who">
+                            <span class="wallet-kicker">Signed in as</span>
+                            <b id="walletWho"></b>
+                        </div>
+                        <button class="wallet-item" id="logoutBtn" role="menuitem">
+                            Log out
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
 
