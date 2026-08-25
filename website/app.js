@@ -3973,10 +3973,24 @@ const BOARD_ROWS = 100
 // index_position 2 is by_score. Secondary keys ascend, so the best score sits at
 // the END of that index - reverse is what turns it into the first row back,
 // rather than reading everything and sorting it here.
+// What the board can be ranked by. index_position is the contract's own
+// ordering of perm_t's secondary keys - score is 2, wins 3, defeats 4 - so each
+// of these is an indexed read of the top rows rather than the whole table
+// pulled down and sorted here.
+const BOARD_SORTS = {
+    score:    { index: 2, field: 'score',            label: 'score' },
+    wins:     { index: 3, field: 'games_won',        label: 'games won' },
+    defeats:  { index: 4, field: 'players_defeated', label: 'players beaten' },
+}
+
+let boardSort = 'score'
+
 async function fetchBoard() {
+    const sort = BOARD_SORTS[boardSort] ?? BOARD_SORTS.score
+
     const data = await getPage({
         table: 'perm', scope: CONTRACT,
-        index_position: 2, key_type: 'i64',
+        index_position: sort.index, key_type: 'i64',
         reverse: true, limit: BOARD_ROWS,
     })
 
@@ -3984,17 +3998,20 @@ async function fetchBoard() {
     return { rows: data.rows ?? [], more: !!data.more }
 }
 
-// Equal scores share a place, and the next distinct score takes the place its
+// Equal values share a place, and the next distinct one takes the place its
 // position earns - two players on 9,000 are both first and the next is third.
 // Numbering straight down the list would quietly break a tie the chain does not.
-function placesFor(rows) {
+//
+// Against whichever field is being ranked, not always score: ranked by wins, a
+// row of players on one win each are all in first place.
+function placesFor(rows, field) {
     const places = []
     let place = 0
     let last = null
 
     rows.forEach((row, i) => {
-        const score = Number(row.score)
-        if (score !== last) { place = i + 1; last = score }
+        const value = Number(row[field])
+        if (value !== last) { place = i + 1; last = value }
         places.push(place)
     })
 
@@ -4058,17 +4075,31 @@ function boardRow(row, rank, isMe) {
     mult.className = 'board-boost'
     if (boost > 1) mult.textContent = boost + '×'
 
-    const score = document.createElement('span')
-    score.className = 'board-score'
-    score.textContent = Number(row.score).toLocaleString()
+    // All three are shown whichever is being ranked by. Hiding the other two
+    // would mean a player could not see WHY the order changed when they pressed
+    // a different heading, and the one in force is lit rather than alone.
+    const figure = (cls, value, key) => {
+        const cell = document.createElement('span')
+        cell.className = cls
+        if (boardSort === key) cell.classList.add('is-ranked')
+        cell.textContent = Number(value).toLocaleString()
+        return cell
+    }
 
-    el.append(place, who, mult, score)
+    el.append(
+        place, who, mult,
+        figure('board-score', row.score, 'score'),
+        figure('board-count', row.games_won ?? 0, 'wins'),
+        figure('board-count', row.players_defeated ?? 0, 'defeats'),
+    )
+
     return el
 }
 
 function renderBoard(result) {
     const rows = result.rows
-    const places = placesFor(rows)
+    const sort = BOARD_SORTS[boardSort] ?? BOARD_SORTS.score
+    const places = placesFor(rows, sort.field)
 
     const cards = rows.map((row, i) =>
         boardRow(row, places[i], row.wallet === state.account))
@@ -4087,8 +4118,20 @@ function renderBoard(result) {
     boardCount.textContent = rows.length ? String(rows.length) : ''
     boardEmpty.hidden = rows.length > 0
 
+    // Worded for the ranking that came back empty. A node answers a read against
+    // an index the deployed contract does not carry with an empty list rather
+    // than an error, so "nobody is on the board" would be said on the strength
+    // of a question that was never really answered.
+    boardEmpty.textContent = boardSort === 'score'
+        ? 'Nobody is on the board yet. It fills the first time a sector is taken outright.'
+        : `Nothing to rank by ${sort.label} yet.`
+
+    boardList.classList.toggle('by-score', boardSort === 'score')
+    boardList.classList.toggle('by-wins', boardSort === 'wins')
+    boardList.classList.toggle('by-defeats', boardSort === 'defeats')
+
     const notes = []
-    if (result.more) notes.push('The top ' + BOARD_ROWS + ' only.')
+    if (result.more) notes.push('The top ' + BOARD_ROWS + ' by ' + sort.label + ' only.')
     if (outside) notes.push('You are below them, and your own row is at the foot of the list.')
 
     boardNote.textContent = notes.join(' ')
@@ -4159,6 +4202,28 @@ function setBoardOpen(open) {
 
     loadBoard()
 }
+
+const boardHead = $('boardHead')
+
+boardHead.addEventListener('click', (e) => {
+    const btn = e.target.closest('.board-sort')
+    if (!btn) return
+
+    const key = btn.dataset.sort
+    if (!BOARD_SORTS[key] || key === boardSort) return
+
+    boardSort = key
+
+    for (const b of boardHead.querySelectorAll('.board-sort')) {
+        b.classList.toggle('is-on', b.dataset.sort === key)
+    }
+
+    // A fresh read rather than a re-sort of what is on screen: the top hundred
+    // by score are not the top hundred by wins, so sorting what was already
+    // fetched would rank the wrong hundred players.
+    boardRefreshBtn.disabled = true
+    loadBoard()
+})
 
 boardBtn.addEventListener('click', () => { setBoardOpen(!boardOpen) })
 boardClose.addEventListener('click', () => { setBoardOpen(false) })

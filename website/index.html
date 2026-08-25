@@ -324,6 +324,21 @@
                               <h2 class="lobby-heading">Standings</h2>
                               <span class="lobby-count" id="boardCount"></span>
                           </div>
+
+                          <!-- The headings are the sort control. A row of buttons above a
+                               table repeating the words already at the top of its columns
+                               is the same thing said twice; this way what you press is the
+                               thing you are ranking by. Each is a different index on the
+                               contract, not a re-sort of what was already read. -->
+                          <div class="board-headrow" id="boardHead">
+                              <span></span>
+                              <span></span>
+                              <span class="board-h">Boost</span>
+                              <button class="board-sort is-on" data-sort="score">Score</button>
+                              <button class="board-sort" data-sort="wins">Won</button>
+                              <button class="board-sort" data-sort="defeats">Beaten</button>
+                          </div>
+
                           <div class="board-list" id="boardList"></div>
                       </section>
 
