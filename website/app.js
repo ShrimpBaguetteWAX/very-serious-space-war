@@ -3129,15 +3129,15 @@ const FX_CELL = 40            // the lattice pitch. The forms sit ON the ground,
 const FX_FRAME_MS = 33        // 30fps
 const FX_DECAY = 0.945        // the base rate; every cell varies around it
 const FX_DECAY_VARY = 0.045   // how far it varies, which is what raggeds the edges
-const FX_STEP_MS = 70         // how long the front takes to cross one cell
+const FX_STEP_MS = 95         // how long the front takes to cross one cell
 const FX_SPREAD = 0.58        // chance the front takes any one neighbour
-const FX_BUDGET = 220         // cells one front may claim before it is spent
-const FX_MAX_STEPS = 30
+const FX_BUDGET = 150         // cells one front may claim before it is spent
+const FX_MAX_STEPS = 22
 const FX_MIN = 0.03           // below this a cell is not worth a rectangle
-const FX_BUCKETS = 5
-const FX_PEAK = 0.09          // the brightest a cell ever gets. Muted is the point
-const FX_MAX_FRONTS = 3
-const FX_GAP_MS = [900, 3600]
+const FX_BUCKETS = 7
+const FX_PEAK = 0.055         // the brightest a cell ever gets. Muted is the point
+const FX_MAX_FRONTS = 2
+const FX_GAP_MS = [5000, 11000]
 
 let fxW = 0, fxH = 0
 let fxCols = 0, fxRows = 0
@@ -3284,11 +3284,10 @@ function fxDraw() {
         const cells = fxBuckets[b]
         if (!cells.length) continue
 
-        // Dimmer cells are drawn smaller as well as fainter, so a form comes
-        // apart at its edge rather than turning into a grey slab. The floor is a
-        // third of the cell rather than a few pixels - against a cell this big a
-        // speck reads as a dot on the ground instead of a tile leaving it.
-        const size = FX_CELL * (0.34 + 0.66 * (b / (FX_BUCKETS - 1))) - 2
+        // Dimmer cells are drawn a little smaller as well as fainter, but only a
+        // little: shrinking a tile as it dims put a second animation underneath
+        // the fade, and the two together were what made this hard to ignore.
+        const size = FX_CELL * (0.78 + 0.22 * (b / (FX_BUCKETS - 1))) - 2
         const inset = (FX_CELL - size) / 2
 
         fxCtx.globalAlpha = FX_PEAK * ((b + 1) / FX_BUCKETS)
