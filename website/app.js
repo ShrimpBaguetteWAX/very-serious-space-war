@@ -2513,6 +2513,19 @@ atkPower.addEventListener('input', () => {
 
 // Named rather than inline, because the button is no longer the only way in -
 // clicking a tile that is already selected fires the same attack.
+// The colour this client has drawn on a tile - which is the whole point: it is
+// what the player was looking at when they aimed, not what is there now.
+//
+// Mirrors the renderer's own rule that a tile with no value has no owner, so
+// what is sent is exactly what was on screen.
+function colorAt(row, col) {
+    if (!state.codes || !state.cells) return 0
+    if (row < 0 || col < 0 || row >= state.height || col >= state.width) return 0
+
+    const i = row * state.width + col
+    return state.cells[i] === 0 ? 0 : state.codes[i]
+}
+
 async function runAttack() {
     const me = myPlayer()
     const r = lastResolved
@@ -2531,6 +2544,11 @@ async function runAttack() {
         return
     }
 
+    // Both captured before the wallet is asked, so what is compared afterwards
+    // is what was actually committed to.
+    const expectedColor = colorAt(r.entry.row, r.entry.col)
+    const tilesBefore = Number(me.tiles_owned)
+
     attacking = true
     renderAttack()
     showPending('Waiting for wallet…')
@@ -2547,6 +2565,12 @@ async function runAttack() {
                     row: r.entry.row,
                     col: r.entry.col,
                     power_to_use: commit,
+
+                    // What that tile held when the attack was aimed. The contract
+                    // does nothing at all if it has changed hands since - which
+                    // decides both what a cascade takes and what each tile costs,
+                    // so a stale one is a different attack at a price nobody quoted.
+                    expected_color: expectedColor,
                 },
             },
         })
@@ -2576,7 +2600,17 @@ async function runAttack() {
         await loadMap({ keepView: true, focus: r.entry })
 
         const now = myPlayer()
-        if (settled && now) {
+
+        // The contract returns without doing anything when the tile is not what
+        // was aimed at, so there is no error to catch and no row to have moved.
+        // What says it happened is the board: that tile is somebody else's now,
+        // and nothing of ours changed.
+        const changedHands = colorAt(r.entry.row, r.entry.col) !== expectedColor
+        const stoodStill = !settled && now && Number(now.tiles_owned) === tilesBefore
+
+        if (changedHands && stoodStill) {
+            showInfo('That ground changed hands before your attack landed, so nothing was sent. Nothing was spent either — aim again.')
+        } else if (settled && now) {
             showInfo(`Attack resolved — you hold ${Number(now.tiles_owned).toLocaleString()} tiles.`)
         } else {
             showInfo('Attack sent — it has not shown up on this node yet.')
