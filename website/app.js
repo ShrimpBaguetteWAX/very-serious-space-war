@@ -2631,9 +2631,35 @@ attackBtn.addEventListener('click', runAttack)
 
 // Banked power moves on its own, so the panel ticks rather than waiting for the
 // next chain read. Cheap: arithmetic on one row, no network.
+// Twice a second. Nothing here reads the chain: a bank is power, a stamp and a
+// rate, so what it is worth right now is arithmetic on rows already in hand.
+//
+// The figures on the map are NOT gated on having spawned. They were, along with
+// everything else in here, which meant anybody watching a game they had not
+// joined saw every number frozen until a click or a pan happened to trigger a
+// frame - and a spectator watching NPCs fight is precisely the case where those
+// figures are the only thing moving on screen.
 setInterval(() => {
     if (mapScreen.hidden) return
 
+    tickOwnBank()
+
+    // Only when a figure on screen would actually differ. Banks stop at the cap,
+    // and past that every digit is the one already drawn - on a settled board
+    // this is a comparison and nothing else.
+    //
+    // Only the LABELS are repainted, never the map underneath, which is the
+    // reason they sit on their own layer.
+    if (!state.reveal && labelFiguresMoved()) {
+        renderLabels()
+    }
+}, 500)
+
+
+// The half of that tick that needs a player of your own: your bank, your cap,
+// and whether the attack button has become affordable while you sat looking at
+// a target.
+function tickOwnBank() {
     const me = myPlayer()
     if (!me) return
 
@@ -2666,27 +2692,7 @@ setInterval(() => {
     if (!attacking && !attackPanel.hidden && lastResolved) {
         renderAttackGate()
     }
-
-    // The map has to be redrawn too, or the figures under the territory names
-    // freeze until something else happens to trigger a frame — a hover, a pan.
-    // That is exactly why they only seemed to move for whoever was selected: the
-    // panel was ticking and the map was not.
-    //
-    // Two gates before it, though, because this is once a second forever.
-    //
-    // Only the LABELS are repainted, never the map underneath, which is the
-    // reason they sit on their own layer.
-    //
-    // And only when a figure on screen would actually differ. Banks stop at the
-    // cap, and past that every digit is the one already drawn — on a settled
-    // board that turns this tick into a comparison and nothing else.
-    //
-    // Not gated on showNames: turning names off leaves the figures, and a
-    // figure that has stopped climbing is worse than no figure at all.
-    if (!state.reveal && labelFiguresMoved()) {
-        renderLabels()
-    }
-}, 1000)
+}
 
 // ── Territory labels ──────────────────────────────────────────────────────
 //
